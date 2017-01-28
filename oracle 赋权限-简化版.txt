@@ -1,0 +1,9 @@
+1、sys权限执行
+Create user user5 identified by user5;  --创建用户user5 密码user5
+grant connect, resource to user50;        --改用户5登录和操作oracle的权限
+2、用户权限执行 user
+grant select, update, insert on product to user5;  --给user5表product 查询、升级、插入的权限
+grant all on product to user5;  --给user5表product所有权限，不包括drop
+3、如何使用
+用user5登录
+select * from user.product  ---如何查询product

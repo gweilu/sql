@@ -1,0 +1,64 @@
+----project name :富阳工资条
+----create by :Robert.Wei
+----create time :2017-1-12
+----测试及调试内容
+SELECT * FROM MCEMPLOYEEINFOGS E WHERE E.EMPNAME LIKE '董淑丹%';
+SELECT H.SSGID, H.SSGNAME FROM HR_SALARYSETINFOGD H;
+SELECT *
+  FROM HR_SALARYTOTALMAINGD H
+ WHERE H.EMPID = '11130509092006856041';
+SELECT REPLACE('2016-10', '-', '') FROM DUAL;
+SELECT *
+  FROM typeentry
+ WHERE T.TYPENAME LIKE '%STATUS%'
+   AND T.ITEMKEY LIKE '%计算%';
+   SELECT DISTINCT t.itemkey,t.isdefault FROM Typeentry t WHERE t.typename LIKE '%POSITIONTYPE%';
+--------------报表内容
+SELECT H.SALARYDATE,
+       O.ORGNAME,
+       E.EMPNAME,
+       E.CARDID,
+       H.SSGNAME,
+       T.ITEMKEY,
+       H.ROUTEID,
+       H.TOTALWAGES,
+       H.DEDUCTWAGES,
+       H.REALWAGES,
+       h.v1,
+       h.v2,
+       h.v3,
+       h.v4,
+       h.v5,
+       h.v6,
+       h.v7,
+       h.v8,
+       h.v9,
+       h.v10,
+       h.v11,
+       h.v12,
+       h.v13,
+       h.v14,
+       h.v15,
+       h.v16,
+       h.v17,
+       h.v18,
+       h.v19,
+       h.v20,
+       t1.itemkey
+  FROM HR_SALARYTOTALMAINGD H,
+       MCORGINFOGS          O,
+       MCEMPLOYEEINFOGS     E,
+       TYPEENTRY            T,
+       typeentry            t1
+ WHERE H.ORGID = O.ORGID(+)
+   AND H.EMPID = E.EMPID(+)
+   AND H.STATUS = T.ITEMVALUE(+)
+   AND h.empptype=t1.itemvalue(+)
+   AND T.TYPENAME = 'SALARYSTATUS'
+   AND t1.typename='POSITIONTYPE'
+   AND H.EMPID = NVL('&empid',h.empid)
+   AND H.SALARYDATE = REPLACE('&dates', '-', '')
+   AND h.empptype=NVL('&empptype',h.empptype)
+   AND h.ssgid='&ssgid'
+   AND h.ssgname LIKE '%管理%'
+   AND h.orgid IN (&orgid);

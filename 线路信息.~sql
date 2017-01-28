@@ -1,0 +1,28 @@
+SELECT R.ROUTEID,
+       R.ROUTENAME,
+       r.routetype,
+       r.tickettype,
+       r.ticketprice,
+       r.iccard,
+       r.
+       SR.SUBROUTEID,
+       SR.MEDIAROUTENAME,
+       SE1.FSTSENDTIME,
+       SE1.LSTSENDTIME,
+       SE2.FSTSENDTIME,
+       SE2.LSTSENDTIME,
+       se3.fstsendtime,
+       se3.lstsendtime,
+       se1.sngmile,
+       se2.sngmile,
+       se3.sngmile,
+       se1.sngtime,
+       se2.sngtime,
+       se3.sngtime
+  FROM MCSUBROUTEINFOGS SR,
+       MCROUTEINFOGS    R,
+       (SELECT * FROM MCSEGMENTINFOGS s WHERE s.rundirection=1)  SE1,
+       (SELECT * FROM MCSEGMENTINFOGS s WHERE s.rundirection=2)  SE2,
+       (SELECT * FROM MCSEGMENTINFOGS s WHERE s.rundirection=3)  SE3
+ WHERE SR.ROUTEID = R.ROUTEID(+) AND SR.SUBROUTEID = SE1.SUBROUTEID(+) AND
+ SR.SUBROUTEID = SE2.SUBROUTEID(+) AND SR.SUBROUTEID = SE3.SUBROUTEID(+) ;

@@ -1,0 +1,30 @@
+-----站点报站情况查询
+SELECT *
+  FROM BSVCBUSARRLFTLD5 BSV,mcrouteinfogs r ,mcstationinfogs s
+ WHERE bsv.routeid=r.routeid(+) AND bsv.stationnum= BSV.ACTDATETIME > DATE '2016-7-16';
+
+select a.routeid,sum(decode (a.stationseqnum,1,1,0)) N1,
+                 sum(decode (a.stationseqnum,2,1,0)) N2, 
+                 sum(decode (a.stationseqnum,3,1,0)) N3,
+                 sum(decode (a.stationseqnum,(select min(r1.dualserialid) from  mcrsegmentstationgs r1 
+                                                          where r1.routeid=a.routeid and r1.subrouteid=a.subrouteid 
+                                                          and r1.stationtypeid=6),1,0)) 主上6,
+                 sum(decode (a.stationseqnum,(select min(r1.dualserialid) from  mcrsegmentstationgs r1 
+                                                          where r1.routeid=a.routeid and r1.subrouteid=a.subrouteid 
+                                                          and r1.stationtypeid=7),1,0)) 主下7,
+                 sum(decode (a.stationseqnum,(select min(r1.dualserialid) from  mcrsegmentstationgs r1 
+                                                          where r1.routeid=a.routeid and r1.subrouteid=a.subrouteid 
+                                                          and r1.stationtypeid=8),1,0)) 副上8,
+                 sum(decode (a.stationseqnum,(select min(r1.dualserialid) from  mcrsegmentstationgs r1 
+                                                          where r1.routeid=a.routeid and r1.subrouteid=a.subrouteid 
+                                                          and r1.stationtypeid=9),1,0)) 副下9
+                 
+                  from bsvcbusarrlftld5 a where a.actdatetime between date'2016-7-15' and date'2016-7-16'
+and a.datatype=4 and a.isarrlft=1 and ( a.stationseqnum <4 or
+                                         exists ( select 1 from  mcrsegmentstationgs r 
+                                                          where r.routeid=a.routeid and r.subrouteid=a.subrouteid 
+                                                          and a.stationseqnum=r.dualserialid and r.stationtypeid<>3)
+                                        )
+group by a.routeid order by  a.routeid;
+
+

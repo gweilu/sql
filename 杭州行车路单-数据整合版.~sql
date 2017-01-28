@@ -1,0 +1,59 @@
+SELECT A.RUNDATE,a.cardid,a.empname,a.busselfid,a.routename,
+       first_value(a.shiftdetailtype) OVER(PARTITION BY A.EMPNAME ORDER BY A.YYMILE DESC) sh,
+       a.seqnum,a.yymile,a.fyymile
+  FROM (SELECT TO_CHAR(DIS.RUNDATE, 'yyyy-mm-dd') rundate,
+               E.CARDID,
+               E.EMPNAME,
+               DIS.BUSSELFID,
+               REPLACE(R.ROUTENAME, '·', '') ROUTENAME,
+               CASE
+                 WHEN DIS.GROUPNUM = 1 AND DIS.SHIFTTYPE = 2 THEN
+                  '1'
+                 WHEN DIS.GROUPNUM = 2 AND DIS.SHIFTTYPE = 2 THEN
+                  '2'
+                 ELSE
+                  DIS.SHIFTDETAILTYPE
+               END SHIFTDETAILTYPE,
+               SUM(CASE
+                     WHEN DIS.RECTYPE = 1 OR DIS.BUSSID = 14 THEN
+                      DIS.SEQNUM
+                     ELSE
+                      0
+                   END) SEQNUM,
+               SUM(CASE
+                     WHEN DIS.RECTYPE = 1 THEN
+                      DIS.MILENUM
+                     ELSE
+                      0
+                   END) YYMILE,
+               SUM(CASE
+                     WHEN DIS.BUSSID = 14 THEN
+                      DIS.MILENUM
+                     ELSE
+                      0
+                   END) BCMILE,
+               SUM(CASE
+                     WHEN DIS.RECTYPE <> 1 AND DIS.BUSSID <> 14 AND
+                          DIS.RECSTATE = 24 THEN
+                      DIS.MILENUM
+                     ELSE
+                      0
+                   END) FYYMILE
+          FROM FDISDISPLANLD DIS, MCEMPLOYEEINFOGS E, MCROUTEINFOGS R
+         WHERE DIS.DRIVERID = E.EMPID(+)
+           AND DIS.ROUTEID = R.ROUTEID(+)
+           AND DIS.ISACTIVE = 1
+           AND DIS.ISCONFIRM = 1
+           AND DIS.RUNDATE = DATE
+         '&dates'
+           AND DIS.ROUTEID IN (&ROUTEID)
+           AND DIS.DRIVERID = NVL('&empid', DIS.DRIVERID)
+           AND DIS.BUSID = NVL('&busselfid', DIS.BUSID)
+         GROUP BY DIS.RUNDATE,
+                  E.CARDID,
+                  E.EMPNAME,
+                  DIS.BUSSELFID,
+                  R.ROUTENAME,
+                  DIS.GROUPNUM,
+                  DIS.SHIFTTYPE,
+                  DIS.SHIFTDETAILTYPE) A

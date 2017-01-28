@@ -1,0 +1,110 @@
+SELECT TO_CHAR(DIS.RUNDATE, 'yyyy-mm-dd'),
+       E.CARDID,
+       E.EMPNAME,
+       DIS.BUSSELFID,
+       REPLACE(R.ROUTENAME, '·', '') ROUTENAME,
+       CASE
+         WHEN DIS.GROUPNUM = 1 AND DIS.SHIFTTYPE = 2 THEN
+          '1'
+         WHEN DIS.GROUPNUM = 2 AND DIS.SHIFTTYPE = 2 THEN
+          '2'
+         ELSE
+          DIS.SHIFTDETAILTYPE
+       END SHIFTDETAILTYPE,
+       SUM(CASE
+             WHEN DIS.RECTYPE = 1 OR DIS.BUSSID = 14 THEN
+              DIS.SEQNUM
+             ELSE
+              0
+           END) SEQNUM,
+       SUM(CASE
+             WHEN DIS.RECTYPE = 1  THEN
+              DIS.MILENUM
+             ELSE
+              0
+           END) YYMILE,
+       SUM(CASE
+             WHEN DIS.BUSSID = 14 THEN
+              DIS.MILENUM
+             ELSE
+              0
+           END) BCMILE,
+       SUM(CASE
+             WHEN DIS.RECTYPE <> 1 AND DIS.BUSSID <> 14 and dis.recstate=24 THEN
+              DIS.MILENUM
+             ELSE
+              0
+           END) FYYMILE
+  FROM FDISDISPLANLD DIS, MCEMPLOYEEINFOGS E, MCROUTEINFOGS R
+ WHERE DIS.DRIVERID = E.EMPID(+)
+   AND DIS.ROUTEID = R.ROUTEID(+)
+   AND DIS.ISACTIVE = 1
+   AND DIS.ISCONFIRM = 1
+   AND DIS.RUNDATE = DATE'&dates'
+   and dis.routeid in (&routeid)
+   AND DIS.DRIVERID = NVL('&empid', DIS.DRIVERID)
+   AND DIS.BUSID = NVL('&busselfid', DIS.BUSID)
+ GROUP BY DIS.RUNDATE,
+          E.CARDID,
+          E.EMPNAME,
+          DIS.BUSSELFID,
+          R.ROUTENAME,
+          DIS.GROUPNUM,
+          DIS.SHIFTTYPE,
+          DIS.SHIFTDETAILTYPE;
+          -----------------------------------------------
+          SELECT TO_CHAR(DIS.RUNDATE, 'yyyy-mm-dd'),
+       E.CARDID,
+       E.EMPNAME,
+       DIS.BUSSELFID,
+       REPLACE(R.ROUTENAME, '·', '') ROUTENAME,
+       CASE
+         WHEN DIS.GROUPNUM = 1 AND DIS.SHIFTTYPE = 2 THEN
+          '1'
+         WHEN DIS.GROUPNUM = 2 AND DIS.SHIFTTYPE = 2 THEN
+          '2'
+         ELSE
+          DIS.SHIFTDETAILTYPE
+       END SHIFTDETAILTYPE,
+       SUM(CASE
+             WHEN DIS.RECTYPE = 1 OR DIS.BUSSID = 14 THEN
+              DIS.SEQNUM
+             ELSE
+              0
+           END) SEQNUM,
+       SUM(CASE
+             WHEN DIS.RECTYPE = 1  THEN
+              DIS.MILENUM
+             ELSE
+              0
+           END) YYMILE,
+       SUM(CASE
+             WHEN DIS.BUSSID = 14 THEN
+              DIS.MILENUM
+             ELSE
+              0
+           END) BCMILE,
+       SUM(CASE
+             WHEN DIS.RECTYPE <> 1 AND DIS.BUSSID <> 14 and dis.recstate=24 THEN
+              DIS.MILENUM
+             ELSE
+              0
+           END) FYYMILE
+  FROM FDISDISPLANLD DIS, MCEMPLOYEEINFOGS E, MCROUTEINFOGS R
+ WHERE DIS.DRIVERID = E.EMPID(+)
+   AND DIS.ROUTEID = R.ROUTEID(+)
+   AND DIS.ISACTIVE = 1
+   AND DIS.ISCONFIRM = 1
+   AND DIS.RUNDATE = DATE'2016-11-12'
+   and dis.routeid in ('320030')
+   AND DIS.DRIVERID = NVL('20150921223010000039', DIS.DRIVERID)
+   AND DIS.BUSID = NVL('&busselfid', DIS.BUSID)
+ GROUP BY DIS.RUNDATE,
+          E.CARDID,
+          E.EMPNAME,
+          DIS.BUSSELFID,
+          R.ROUTENAME,
+          DIS.GROUPNUM,
+          DIS.SHIFTTYPE,
+          DIS.SHIFTDETAILTYPE;
+

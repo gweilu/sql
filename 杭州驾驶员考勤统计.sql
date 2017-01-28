@@ -1,0 +1,7 @@
+---杭州驾驶员考勤统计
+SELECT * FROM ASGNREmpStateLD; --事假表
+SELECT * FROM FDISEMPDUTYLD; --考勤表
+SELECT * FROM mcemployeeinfogs e WHERE e.orgid IN (SELECT O.ORGID 
+          FROM MCORGINFOGS O
+         START WITH O.ORGID = '55150921170238687000'
+        CONNECT BY PRIOR O.ORGID = O.PARENTORGID) ; --人员信息表

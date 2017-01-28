@@ -1,0 +1,4 @@
+select a.rroutedevid,a.devid,d.devname,a.routeid,a.segmentid,b.segmentname,a.stationid,c.stationname,a.dualserialid 
+from mcrroutedevicegs a,mcsegmentinfogs b,mcstationinfogs c,mcdeviceinfogs d
+where a.segmentid=b.segmentid(+) and a.stationid=c.stationid(+) and a.devid=d.id and a.routeid='320220'
+select * FROM mcrouteinfogs

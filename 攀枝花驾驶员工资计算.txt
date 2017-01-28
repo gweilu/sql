@@ -1,0 +1,2010 @@
+CREATE OR REPLACE PACKAGE BODY PKG_PZH_HR_CALC_SALARY_DRIVER IS
+  /*****************************************************************************
+   * 名称：PKG_PZH_HR_CALC_SALARY_DRIVER
+   * 标准参数：
+   *               V_STARTDATE IN DATE, --统计开始日期
+   *               V_ENDDATE   IN DATE, --统计结束日期
+   *               V_RECDATE   IN DATE, --记录日期
+   *               P_MONTH     IN VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+   *               V_EMPIDS    IN VARCHAR2, --人员编号
+   *               V_SSGID     IN VARCHAR2
+   * 用途：攀枝花公交_人资系统_薪资计算_驾驶员：计算工资共通项
+      V1班组V2虚拟公里,V3虚拟收入V4包车实际公里V5包车实际收入V6节亏油V7材料节超
+      V8岗位工资V9年休天数V10病假天数V11婚丧停天数V12实习天数V13洗理费V14水电补贴
+      V15安全绩效考核扣款V16服务绩效考核扣款V17 保洁绩效考核扣款
+   * Create：   CoICE    20151216
+   * 修改：
+  *****************************************************************************/
+  --中间数据计算
+  PROCEDURE P_HR_DRIVER_DATA(  V_MONTH VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_DRIVER_DATA
+    用途：计算驾驶员工资汇总数据
+    说明：
+     Create：   CoICE    20151215
+    *****************************************************************************/
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+    V_STARTDATE DATE := to_date(V_MONTH, 'yyyy-mm');
+    V_ENDDATE   DATE := add_months(to_date(V_MONTH, 'yyyy-mm'), 1) - 1;
+    S_ID NUMBER:=0;
+    --V_SERVICEAGE_SALARY_STD number := 12;
+  BEGIN    
+   SELECT  S_PROCEDURELOGIDSEQ.NEXTVAL INTO S_ID FROM DUAL;
+   INSERT INTO MCPROCEDURELOGLD
+          (LOGID,PROCEDURENAME,EXECSTARTTIME,EXECENDTIME,ISFINISH,PROGRESS,MEMOS)
+          VALUES(S_ID,'PKG_PZH_HR_CALC_SALARY_DRIVER.P_HR_DRIVER_DATA',
+               SYSDATE,'','0','开始计算', V_MONTH||'【驾驶员营运营收数据汇总】已开始计算，请稍后再来查看是否完成');
+    commit;
+    --1 清除中间表数据
+   delete from PZH_HR_EMP_RUNDATA
+     where rundatadate between V_STARTDATE and V_ENDDATE;
+    --2.1 插入营运数据
+    insert into PZH_HR_EMP_RUNDATA
+      (EMPID,
+       EMPTYPE,
+       routeid,
+       BUSID,
+       SHIFTTYPE,
+       SHIFTDETAILTYPE,
+       groupnum,
+       rundatadate,
+       seqnum,
+       fyy_seqnum,
+       milenum,
+       fyy_milenum)
+      select r.driverid EMPID,
+             '1' EMPTYPE,             
+             (case when routeid=25 and exists                  
+                                            (select  bust.maintaintype from mcbusinfogs bus,mcbustypeinfogs bust
+                                            where bus.bustid=bust.bustypeid and  bust.maintaintype IN(1,2)
+                                                 and bus.busid=r.busid)
+                      then 250001 
+                        else r.routeid 
+              end) routeid,
+             BUSID,
+             SHIFTTYPE,
+             SHIFTDETAILTYPE,
+             groupnum,
+             r.rundatadate,
+             sum(case when r.rectype = 1 then r.seqnum else 0 end) seqnum,
+             sum(case when r.rectype = 2 then  r.seqnum else 0 end) fyy_seqnum,
+             sum(case when r.rectype = 1 then r.milenum else  0 end) milenum,
+             sum(case when r.rectype = 2 then r.milenum else 0 end) fyy_milenum
+        from fdisbusrunrecgd r
+       where r.isavailable = 1
+         and r.driverid is not null
+         and r.rundatadate between V_STARTDATE and V_ENDDATE
+       GROUP BY r.driverid,r.routeid, r.rundatadate,BUSID,SHIFTTYPE,groupnum, SHIFTDETAILTYPE;
+   insert into PZH_HR_EMP_RUNDATA
+      (EMPID,
+       EMPTYPE,
+       routeid,
+       BUSID,
+       SHIFTTYPE,
+       SHIFTDETAILTYPE,
+       groupnum,
+       rundatadate,
+       seqnum,
+       fyy_seqnum,
+       milenum,
+       fyy_milenum)
+      select r.stewardid EMPID,
+             '2' EMPTYPE,             
+             (case when routeid=25 and exists                  
+                                            (select  bust.maintaintype from mcbusinfogs bus,mcbustypeinfogs bust
+                                            where bus.bustid=bust.bustypeid and  bust.maintaintype IN(1,2)
+                                                 and bus.busid=r.busid)
+                      then 250001  else r.routeid   end) routeid,
+             BUSID,
+             SHIFTTYPE,
+             SHIFTDETAILTYPE,
+             groupnum,
+             r.rundatadate,
+             sum(case when r.rectype = 1 then r.seqnum else 0 end) seqnum,
+             sum(case when r.rectype = 2 then  r.seqnum else 0 end) fyy_seqnum,
+             sum(case when r.rectype = 1 then r.milenum else  0 end) milenum,
+             sum(case when r.rectype = 2 then r.milenum else 0 end) fyy_milenum
+        from fdisbusrunrecgd r
+       where r.isavailable = 1
+         and r.stewardid is not null
+         and r.rundatadate between V_STARTDATE and V_ENDDATE
+       GROUP BY r.stewardid,r.routeid, r.rundatadate,BUSID,SHIFTTYPE,groupnum, SHIFTDETAILTYPE;
+    COMMIT;
+    delete from PZH_HR_EMP_INCOME
+     where rundatadate between V_STARTDATE and V_ENDDATE;
+    --2.2插入营收数据
+    INSERT INTO PZH_HR_EMP_INCOME
+            (routeid,EMPID,EMPTYPE,RUNDATADATE,CASHINCOME,CASHpassengerflow,ICINCOME,ICpassengerflow,bfincome,bfpassengerflow)
+              SELECT routeid,driverid,'1' EMPTYPE,RUNDATADATE, 
+                     SUM(CASHINCOME),SUM(CASHpassengerflow),SUM(ICINCOME),SUM(ICpassengerflow),SUM(bfincome),SUM(bfpassengerflow)
+                  FROM (select d.routeid,d.driverid,operationdate RUNDATADATE,
+                                        (case when  d.noticket=1 then d.totalincome else 0 end)  CASHINCOME,
+                                        (case when  d.noticket=1 then d.passengerflow else 0 end)  CASHpassengerflow,
+                                        (case when  d.noticket=2 then d.totalincome else 0 end)  ICINCOME ,
+                                        (case when  d.noticket=2 then d.passengerflow else 0 end)  ICpassengerflow,
+                                        0 bfincome,  0 bfpassengerflow   
+                                from dssticketreceiptld d
+                             where d.operationdate  BETWEEN V_STARTDATE and V_ENDDATE
+                                                             AND D.DRIVERID IS NOT NULL 
+                             union all
+                             select a.routeid,a.driverid,bizdate RUNDATADATE,0 CASHINCOME,0 CASHpassengerflow, 0 ICINCOME,0 ICpassengerflow,
+                                      a.sjmoney bfincome,a.piecenum bfpassengerflow  
+                                 from  bfaretkacnt a 
+                               where a.biztype='J1' AND A.DRIVERID IS NOT NULL 
+                                                             and a.bizdate BETWEEN V_STARTDATE and V_ENDDATE
+                            )
+                  GROUP BY   routeid,driverid,RUNDATADATE;
+    INSERT INTO PZH_HR_EMP_INCOME
+            (routeid,EMPID,EMPTYPE,RUNDATADATE,CASHINCOME,CASHpassengerflow,ICINCOME,ICpassengerflow,bfincome,bfpassengerflow)
+              SELECT routeid,Stewardid,'2' EMPTYPE,RUNDATADATE, 
+                     SUM(CASHINCOME),SUM(CASHpassengerflow),SUM(ICINCOME),SUM(ICpassengerflow),SUM(bfincome),SUM(bfpassengerflow)
+                  FROM (select d.routeid,d.Stewardid,operationdate RUNDATADATE,
+                                        (case when  d.noticket=1 then d.totalincome else 0 end)  CASHINCOME,
+                                        (case when  d.noticket=1 then d.passengerflow else 0 end)  CASHpassengerflow,
+                                        (case when  d.noticket=2 then d.totalincome else 0 end)  ICINCOME ,
+                                        (case when  d.noticket=2 then d.passengerflow else 0 end)  ICpassengerflow,
+                                        0 bfincome,  0 bfpassengerflow   
+                                from dssticketreceiptld d
+                             where d.operationdate  BETWEEN V_STARTDATE and V_ENDDATE
+                                                             AND D.Stewardid IS NOT NULL 
+                             union all
+                             select a.routeid,a.Stewardid,bizdate RUNDATADATE,0 CASHINCOME,0 CASHpassengerflow, 0 ICINCOME,0 ICpassengerflow,
+                                      a.sjmoney bfincome,a.piecenum bfpassengerflow  
+                                 from  bfaretkacnt a 
+                               where a.biztype='J1' AND A.Stewardid IS NOT NULL 
+                                                             and a.bizdate BETWEEN V_STARTDATE and V_ENDDATE
+                            )
+                  GROUP BY   routeid,Stewardid,RUNDATADATE;   
+    commit;
+    --2.2 汇总数据 --线路
+    DELETE FROM PZH_HR_EMP_DATA WHERE MONTH = P_MONTH;
+    INSERT INTO PZH_HR_EMP_DATA P
+      (EMPID, ROUTEID, EMPTYPE, month)
+      select EMPID, ROUTEID, EMPTYPE, P_MONTH
+        from (select ROW_NUMBER() OVER(PARTITION BY empid ORDER BY seqnum desc) RW,
+                     routeid,
+                     empid,
+                     EMPTYPE
+                from (select empid, routeid, EMPTYPE, sum(p.seqnum) seqnum
+                        from PZH_HR_EMP_RUNDATA p
+                       where rundatadate between V_STARTDATE and V_ENDDATE
+                       group by empid, routeid, EMPTYPE))
+       where RW = 1;   
+      INSERT INTO PZH_HR_EMP_DATA --插入有营收无营运数据
+      (EMPID, ROUTEID, EMPTYPE, month)
+      select EMPID, ROUTEID, EMPTYPE, P_MONTH
+        from (select ROW_NUMBER() OVER(PARTITION BY empid ORDER BY seqnum desc) RW,
+                     routeid,
+                     empid,
+                     EMPTYPE
+                from (select empid, routeid, EMPTYPE, sum(INCOME.CASHINCOME+INCOME.ICINCOME+INCOME.BFINCOME) seqnum
+                        from PZH_HR_EMP_INCOME INCOME
+                       where rundatadate between V_STARTDATE and V_ENDDATE
+                        AND not exists (select 1 from  pzh_hr_emp_data p where  INCOME.empid=p.empid and  p.month=P_MONTH) 
+                       group by empid, routeid, EMPTYPE))
+       where RW = 1;   
+       COMMIT;
+    --2.3更新线路类型
+   update PZH_HR_EMP_DATA t
+       set t.routetype =
+           (select min(routetype)
+              from HR_ROUTETYPEGD h
+             where h.routeid = t.routeid
+               and V_STARTDATE between h.startdate and h.enddate)
+     where T.MONTH = P_MONTH;
+    COMMIT;
+    --2.2更新车辆
+    update PZH_HR_EMP_DATA p1
+       set p1.busid = PKG_PZH_HR_CALC_SALARY_DRIVER.F_HR_GET_EMP_BUSID(P1.EMPID,V_STARTDATE,V_ENDDATE)
+     WHERE P1.MONTH = P_MONTH;
+    COMMIT;
+    --更新车龄
+    update PZH_HR_EMP_DATA p
+       set p.busage =
+           (select NVL(substr(P_MONTH, 0, 4) - to_char(usedate, 'yyyy') + 1,1)
+              from mcbusinfogs bus
+             where bus.busid = p.busid)
+     where p.month = P_MONTH;  
+     commit;
+     --更新线路日平均里程、收入
+    update PZH_HR_EMP_DATA p
+       set (p.routedaymile,p.routedayincome) =
+                             (select sum(( case when V_ENDDATE>h.enddate then h.enddate else V_ENDDATE end
+                                                   -
+                                                 case when V_STARTDATE< h.startdate then h.startdate else V_STARTDATE end
+                                                   +1)
+                                                   *h.mile/(V_ENDDATE-V_STARTDATE+1)
+                                               ),
+                                          sum(( case when V_ENDDATE>h.enddate then h.enddate else V_ENDDATE end
+                                                   -
+                                                 case when V_STARTDATE< h.startdate then h.startdate else V_STARTDATE end
+                                                   +1)
+                                                   *h.income/(V_ENDDATE-V_STARTDATE+1)
+                                               )
+                                from HR_ROUTEINCOMEGD h
+                               where h.routeid=p.routeid
+                               and h.enddate>=V_STARTDATE
+                               and h.startdate<=V_ENDDATE)
+     where p.month = P_MONTH;  
+     commit;
+--折算汇总线路里程
+     UPDATE PZH_HR_EMP_DATA P
+            SET P.MILENUM= ( SELECT SUM( P1.MILENUM *
+                                                                        (CASE WHEN  PKG_PZH_HR_CALC_SALARY_DRIVER.F_HR_GET_ROUTE_RATIO(P.ROUTEID,P1.RUNDATADATE,0)=0  
+                                                                                   OR    PKG_PZH_HR_CALC_SALARY_DRIVER.F_HR_GET_ROUTE_RATIO(P1.ROUTEID,P1.RUNDATADATE,0)=0
+                                                                                  THEN 1
+                                                                              ELSE  PKG_PZH_HR_CALC_SALARY_DRIVER.F_HR_GET_ROUTE_RATIO(P1.ROUTEID,P1.RUNDATADATE,0)
+                                                                                    / PKG_PZH_HR_CALC_SALARY_DRIVER.F_HR_GET_ROUTE_RATIO(P.ROUTEID,P1.RUNDATADATE,0)
+                                                                        END )
+                                                           )
+                                               FROM PZH_HR_EMP_RUNDATA P1
+                                              WHERE P1.EMPID=P.EMPID 
+                                                AND   P1.RUNDATADATE  between V_STARTDATE and V_ENDDATE
+                                        ) 
+         WHERE P.MONTH=P_MONTH;
+      COMMIT;
+ --折算汇总线路收入
+      UPDATE PZH_HR_EMP_DATA P
+            SET P.INCOME= ( SELECT SUM( (p1.cashincome+p1.icincome+p1.bfincome) *
+                                                                        (CASE WHEN  PKG_PZH_HR_CALC_SALARY_DRIVER.F_HR_GET_ROUTE_RATIO(P.ROUTEID,P1.RUNDATADATE,1)=0  
+                                                                                   OR    PKG_PZH_HR_CALC_SALARY_DRIVER.F_HR_GET_ROUTE_RATIO(P1.ROUTEID,P1.RUNDATADATE,1)=0
+                                                                                  THEN 1
+                                                                              ELSE  PKG_PZH_HR_CALC_SALARY_DRIVER.F_HR_GET_ROUTE_RATIO(P1.ROUTEID,P1.RUNDATADATE,1)
+                                                                                    / PKG_PZH_HR_CALC_SALARY_DRIVER.F_HR_GET_ROUTE_RATIO(P.ROUTEID,P1.RUNDATADATE,1)
+                                                                        END )
+                                                           )
+                                               FROM PZH_HR_EMP_INCOME P1
+                                              WHERE P1.EMPID=P.EMPID 
+                                                AND   P1.RUNDATADATE  between V_STARTDATE and V_ENDDATE
+                                        ) 
+         WHERE P.MONTH=P_MONTH;
+      COMMIT;
+--更新工作天数   班次优先级 双班（正班）、日勤、始早、单班
+     UPDATE PZH_HR_EMP_DATA P
+            SET (P.WORKDAY,p.workday1,p.workday2,p.workday3,p.workday4)=
+                               ( select count(1),sum( case when shifttype=1 then 1 else 0 end)
+                                                     ,sum( case when shifttype=2 then 1 else 0 end)
+                                                     ,sum( case when shifttype=3 then 1 else 0 end)
+                                                     ,sum( case when shifttype=4 then 1 else 0 end)                     
+                                         from  (SELECT a.empid,a.rundatadate,MIN(case when   a.shifttype=2 THEN 1 
+                                                                                                            WHEN  a.shifttype<>2 AND A.SHIFTDETAILTYPE=11 THEN 3
+                                                                                                            WHEN  a.shifttype<>2 AND A.SHIFTDETAILTYPE=12 THEN 4
+                                                                                                            ELSE 5 END ) shifttype
+                                 FROM pzh_hr_emp_rundata a WHERE rundatadate between  V_STARTDATE and V_ENDDATE
+                                group by empid,a.rundatadate) a1 
+                                where a1.empid=P.EMPID ) 
+         WHERE P.MONTH=P_MONTH;
+       commit; 
+--更新节假日里程 SHOURU和天数
+        UPDATE PZH_HR_EMP_DATA P
+            SET (P.HOLIDAYCALMILE,P.HOLIDAYCALINCOME,P.WORKHOLIDAYS)=
+                                      ( SELECT /*SUM( P1.MILENUM *
+                                                                        (CASE WHEN  PKG_PZH_HR_CALC_SALARY_DRIVER.F_HR_GET_ROUTE_RATIO(P.ROUTEID,P1.RUNDATADATE)=0  
+                                                                                   OR    PKG_PZH_HR_CALC_SALARY_DRIVER.F_HR_GET_ROUTE_RATIO(P1.ROUTEID,P1.RUNDATADATE)=0
+                                                                                  THEN 1
+                                                                              ELSE  PKG_PZH_HR_CALC_SALARY_DRIVER.F_HR_GET_ROUTE_RATIO(P1.ROUTEID,P1.RUNDATADATE)
+                                                                                    / PKG_PZH_HR_CALC_SALARY_DRIVER.F_HR_GET_ROUTE_RATIO(P.ROUTEID,P1.RUNDATADATE)
+                                                                        END )
+                                                           ),*/
+                                                    COUNT(DISTINCT P1.RUNDATADATE) *p.routedaymile,
+                                                    COUNT(DISTINCT P1.RUNDATADATE) *p.Routedayincome,
+                                                    COUNT(DISTINCT P1.RUNDATADATE)                                                          
+                                               FROM PZH_HR_EMP_RUNDATA P1
+                                              WHERE P1.EMPID=P.EMPID 
+                                                AND   P1.RUNDATADATE  between V_STARTDATE and V_ENDDATE
+                                                AND    EXISTS (SELECT 1 FROM HR_HOLIDAYGS H
+                                                                        WHERE P1.RUNDATADATE BETWEEN H.HOLIDAYSTARTDATE AND H.HOLIDAYENDDATE
+                                                                        AND H.HOLIDAYENDDATE>= V_STARTDATE 
+                                                                        and h.holidaytype<>3) 
+                                        ) 
+         WHERE P.MONTH=P_MONTH;
+      COMMIT;
+      --高温天数
+        UPDATE PZH_HR_EMP_DATA P
+            SET (P.Workhotdays)=
+                                      ( SELECT  COUNT(DISTINCT P1.RUNDATADATE)                                                          
+                                               FROM PZH_HR_EMP_RUNDATA P1
+                                              WHERE P1.EMPID=P.EMPID 
+                                                AND   P1.RUNDATADATE  between V_STARTDATE and V_ENDDATE
+                                                AND    EXISTS (SELECT 1 FROM HR_HOLIDAYGS H
+                                                                        WHERE P1.RUNDATADATE BETWEEN H.HOLIDAYSTARTDATE AND H.HOLIDAYENDDATE
+                                                                        AND H.HOLIDAYENDDATE>= V_STARTDATE 
+                                                                        and h.holidaytype=3) 
+                                        ) 
+         WHERE P.MONTH=P_MONTH;
+      COMMIT;      
+    update    MCPROCEDURELOGLD a
+              set  EXECENDTIME=sysdate
+                   ,ISFINISH='1'
+                   ,PROGRESS='已结束'
+                   ,MEMOS=V_MONTH||'【驾驶员营运营收数据汇总】已计算完成。'            
+     where LOGID=S_ID;
+    commit;
+    exception WHEN OTHERS THEN
+     update    MCPROCEDURELOGLD a
+              set  EXECENDTIME=sysdate
+                   ,ISFINISH='1'
+                   ,PROGRESS='异常退出'
+                   ,MEMOS=V_MONTH||'【驾驶员营运营收数据汇总】计算过程中出现异常，请排查数据或联系系统管理员处理。'            
+     where LOGID=S_ID;
+    commit;
+          --
+  END P_HR_DRIVER_DATA;
+  --中间数据计算
+  PROCEDURE P_HR_DRIVER_DATA_AFTER_ALTER(V_MONTH VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_DRIVER_DATA_AFTER_ALTER
+    用途：导入驾驶员工资项目后，再次计算部分薪资项目
+    说明：
+     Create：   CoICE    20151218
+    *****************************************************************************/
+    V_COUNT number := 0;    
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+    V_STARTDATE DATE := to_date(REPLACE(REPLACE(V_MONTH,'-'),'-'), 'yyyymm');
+    V_ENDDATE   DATE := add_months(to_date(REPLACE(REPLACE(V_MONTH,'-'),'-'), 'yyyymm'), 1) - 1;
+    V_WORKDAYS_STD number := 20.83;
+    V_WORKDAYS_STD_DS number := 25.33;
+    V_MERITPAY_MILE_RATIO number := 0.7;
+    V_MERITPAY_IMCOME_RATIO number := 0.7;
+    V_DRIVER_MERITPAY_INCOME  number :=0.4;    --驾驶员绩效收入占比  
+    V_DRIVER_MERITPAY_SAFE  number :=0.3;    --驾驶员绩效安全占比  
+    V_DRIVER_MERITPAY_MATERIAL  number :=0.2;    --驾驶员绩效材料占比  
+    V_DRIVER_MERITPAY_SERVICE  number :=0.1;    --驾驶员绩效服务占比  
+    V_STEWARD_MERITPAY_INCOME  number :=0.4;    --乘务员绩效收入占比  
+    V_STEWARD_MERITPAY_SAFE  number :=0.05;    --乘务员绩效安全占比  
+    V_STEWARD_MERITPAY_SERVICE  number :=0.35;--乘务员绩效服务占比  
+    V_STEWARD_MERITPAY_CLEAN  number :=0.2;    --乘务员绩效材料占比  
+    S_ID NUMBER:=0;
+    --V_SERVICEAGE_SALARY_STD number := 12;
+  BEGIN    
+   SELECT  S_PROCEDURELOGIDSEQ.NEXTVAL INTO S_ID FROM DUAL;
+   INSERT INTO MCPROCEDURELOGLD
+          (LOGID,PROCEDURENAME,EXECSTARTTIME,EXECENDTIME,ISFINISH,PROGRESS,MEMOS)
+          VALUES(S_ID,'PKG_PZH_HR_CALC_SALARY_DRIVER.P_HR_DRIVER_DATA_AFTER_ALTER',
+               SYSDATE,'','0','开始计算', V_MONTH||'【司乘薪资中间数据计算】已开始计算，请稍后再来查看是否完成');
+    commit;
+    -- 获取标准
+    SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'WORKDAYS_STD';
+     IF V_COUNT>0 THEN
+        SELECT VALUE INTO V_WORKDAYS_STD
+               FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'WORKDAYS_STD';
+     END IF;
+      SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'WORKDAYS_STD_DS';
+     IF V_COUNT>0 THEN
+        SELECT VALUE  INTO V_WORKDAYS_STD_DS
+               FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'WORKDAYS_STD_DS';
+     END IF;
+    SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'MERITPAY_MILE_RATIO';
+     IF V_COUNT>0 THEN
+        SELECT VALUE INTO V_MERITPAY_MILE_RATIO
+               FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'MERITPAY_MILE_RATIO';
+     END IF;
+      SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'MERITPAY_INCOME_RATIO';
+     IF V_COUNT>0 THEN
+        SELECT VALUE  INTO V_MERITPAY_IMCOME_RATIO
+               FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'MERITPAY_INCOME_RATIO';
+     END IF;
+      SELECT COUNT(1)  INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'DRIVER_MERITPAY_SAFE';
+     IF V_COUNT>0 THEN
+        SELECT VALUE  INTO V_DRIVER_MERITPAY_SAFE
+             FROM HR_SALARY_CONFIGS C
+       WHERE C.SECTION = 'DRIVER_MERITPAY_SAFE';
+     END IF;
+      SELECT COUNT(1)  INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'DRIVER_MERITPAY_SERVICE';
+     IF V_COUNT>0 THEN
+        SELECT VALUE  INTO V_DRIVER_MERITPAY_SERVICE
+             FROM HR_SALARY_CONFIGS C
+       WHERE C.SECTION = 'DRIVER_MERITPAY_SERVICE';
+     END IF;
+      SELECT COUNT(1)  INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'V_DRIVER_MERITPAY_INCOME';
+     IF V_COUNT>0 THEN
+        SELECT VALUE  INTO V_DRIVER_MERITPAY_INCOME
+             FROM HR_SALARY_CONFIGS C
+       WHERE C.SECTION = 'V_DRIVER_MERITPAY_INCOME';
+     END IF;
+      SELECT COUNT(1)  INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'DRIVER_MERITPAY_MATERIAL';
+     IF V_COUNT>0 THEN
+        SELECT VALUE  INTO V_DRIVER_MERITPAY_MATERIAL
+             FROM HR_SALARY_CONFIGS C
+       WHERE C.SECTION = 'DRIVER_MERITPAY_MATERIAL';
+     END IF; 
+     ----     
+      SELECT COUNT(1)  INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'STEWARD_MERITPAY_INCOME';
+     IF V_COUNT>0 THEN
+        SELECT VALUE  INTO V_STEWARD_MERITPAY_INCOME
+             FROM HR_SALARY_CONFIGS C
+       WHERE C.SECTION = 'STEWARD_MERITPAY_INCOME';
+     END IF; 
+      SELECT COUNT(1)  INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'STEWARD_MERITPAY_SAFE';
+     IF V_COUNT>0 THEN
+        SELECT VALUE  INTO V_STEWARD_MERITPAY_SAFE
+             FROM HR_SALARY_CONFIGS C
+       WHERE C.SECTION = 'STEWARD_MERITPAY_SAFE';
+     END IF; 
+      SELECT COUNT(1)  INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'STEWARD_MERITPAY_SERVICE';
+     IF V_COUNT>0 THEN
+        SELECT VALUE  INTO V_STEWARD_MERITPAY_SERVICE
+             FROM HR_SALARY_CONFIGS C
+       WHERE C.SECTION = 'STEWARD_MERITPAY_SERVICE';
+     END IF; 
+      SELECT COUNT(1)  INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'STEWARD_MERITPAY_CLEAN';
+     IF V_COUNT>0 THEN
+        SELECT VALUE  INTO V_STEWARD_MERITPAY_CLEAN
+             FROM HR_SALARY_CONFIGS C
+       WHERE C.SECTION = 'STEWARD_MERITPAY_CLEAN';
+     END IF; 
+   --插入无营运营收数据 记录
+     insert into pzh_hr_emp_data(month,empid,emptype,routeid)
+        SELECt  s.month, s.empid ,decode( e.empptype,1 , 1,2,2,3) emptype,
+                       nvl(route.routeid, (select min(routeid ) from mcrorgroutegs o where o.orgid=e.orgid)   
+                           ) routeid
+                  FROM hr_salaryimportdatagd S,mcemployeeinfogs e,
+                                ( select r.empid,min(routeid) routeid from asgnremprouteld r
+                                   group by r.empid) route
+                  where s.empid=e.empid 
+                  and s.empid=route.empid(+)
+                  and e.empptype in (1,2)-- 驾驶员与乘务员
+                  and s.month=P_MONTH
+                  and not exists (select 1 from  pzh_hr_emp_data p where  s.empid=p.empid and  p.month=s.month);  
+       commit;
+ --更新班组,岗位工资 
+   update PZH_HR_EMP_DATA p
+       set (P.Shifttype,p.postsalarystd)=
+           (select min(e.V1),max(e.V8)
+              from HR_SALARYIMPORTDATAGD E
+             where E.EMPID=P.EMPID AND E.MONTH=P.MONTH)
+     where p.month = P_MONTH
+    -- AND P.EMPTYPE='1'
+     ;  
+    update PZH_HR_EMP_DATA p
+       set P.Shifttype=1
+     where p.month = P_MONTH and shifttype is null
+   --  AND P.EMPTYPE='1'
+     ; 
+   commit;
+ --更新总折算里程1 和收入1
+    update PZH_HR_EMP_DATA p
+       set (P.CALMILE1,P.CALINCOME1)=
+           (select SUM(NVL(E.V2,0))+NVL(P.MILENUM,0)   ,
+                     SUM(NVL(E.V3,0))+ NVL(P.INCOME,0) 
+              from HR_SALARYIMPORTDATAGD E
+             where E.EMPID=P.EMPID AND E.MONTH=P.MONTH)
+     where p.month = P_MONTH
+    -- AND P.EMPTYPE='1'
+     ;  
+     update PZH_HR_EMP_DATA p
+       set P.CALMILE1=NVL(P.MILENUM,0)                      
+     where p.month = P_MONTH AND P.CALMILE1 IS NULL
+    -- AND P.EMPTYPE='1'
+     ; 
+     update PZH_HR_EMP_DATA p
+       set P.CALINCOME1= NVL(P.INCOME,0)            
+     where p.month = P_MONTH AND P.CALINCOME1 IS NULL
+     --AND P.EMPTYPE='1'
+     ;      
+     commit;
+--更新总折算里程2 和收入2
+     update PZH_HR_EMP_DATA p
+       set P.CALMILE2=(case when P.CALMILE1>=V_WORKDAYS_STD_DS*p.routedaymile AND  NVL(p.routedaymile,0) <>0
+                                              then  p.routedaymile*V_WORKDAYS_STD+1.5*p.routedaymile*(V_WORKDAYS_STD_DS-V_WORKDAYS_STD)+2*(CALMILE1-V_WORKDAYS_STD_DS*p.routedaymile)
+                                       when CALMILE1<V_WORKDAYS_STD*p.routedaymile  OR   NVL(p.routedaymile,0) =0
+                                              then  p.CALMILE1
+                                       ELSE
+                                                p.routedaymile*V_WORKDAYS_STD+1.5*(CALMILE1-V_WORKDAYS_STD*p.routedaymile)
+                                  END) ,
+               P.CALINCOME2=(case when P.CALINCOME1>=V_WORKDAYS_STD_DS*p.Routedayincome AND  NVL(p.Routedayincome,0) <>0
+                                              then  p.Routedayincome*V_WORKDAYS_STD+1.5*p.Routedayincome*(V_WORKDAYS_STD_DS-V_WORKDAYS_STD)+2*(CALINCOME1-V_WORKDAYS_STD_DS*p.Routedayincome)
+                                       when CALINCOME1<V_WORKDAYS_STD*p.routedayINCOME  OR   NVL(p.Routedayincome,0) =0
+                                              then  p.CALINCOME1
+                                       ELSE
+                                                p.Routedayincome*V_WORKDAYS_STD+1.5*(CALINCOME1-V_WORKDAYS_STD*p.Routedayincome)
+                                       END)                  
+     where p.month = P_MONTH
+    -- AND P.EMPTYPE='1' 
+     ;      
+     commit; 
+     --更新线路，班组，总折算折算里程和收入
+     update PZH_HR_EMP_DATA p
+       set (p.routecalmile1,p.routecalincome1,p.routecalmile2,p.routecalincome2,p.shiftcalmile1,p.shiftcalincome1)
+                            =(select sum(p1.calmile1),sum(p1.calincome1),sum(p1.calmile2),sum(p1.calincome2),
+                                         sum( case when  nvl(p.shifttype,1)= nvl(p1.shifttype,1) then p1.calmile1 else 0 end),                                         
+                                         sum( case when  nvl(p.shifttype,1)= nvl(p1.shifttype,1) then p1.calincome1 else 0 end)
+                                     from PZH_HR_EMP_DATA p1
+                                  where p1.routeid=p.routeid and p1.month=p.month     
+                                        and p.emptype=p1.emptype --兼容乘务员 新增
+                               ) 
+                                 
+     where p.month = P_MONTH 
+   --  AND P.EMPTYPE='1'
+     ;      
+     commit;
+     --更新 班组百公里收入
+     update PZH_HR_EMP_DATA p
+       set P.SHIFTINCOMEPENT=(CASE WHEN nvl(p.shiftcalmile1,0)<>0 THEN p.shiftcalincome1*100/p.shiftcalmile1    
+                                                    ELSE 0 end)                                  
+     where p.month = P_MONTH 
+    -- AND P.EMPTYPE='1'
+     ;   
+     commit; 
+  --计算个人应发绩效总额,更新 计划绩效单位收入，线路绩效奖励总额，线路收入专项奖
+    update PZH_HR_EMP_DATA p
+       set (p.meritpay , p.routeincomestd,p.performancesum,p.incomedeductions)=
+                       (select  case when p.emptype='1'--驾驶员
+                                                     then MAX(H.PERFORMANCESUM-H.INCOMEDEDUCTIONS)
+                                                                 *(V_MERITPAY_MILE_RATIO*P.CALMILE2/DECODE(P.ROUTECALMILE2,0,1,P.ROUTECALMILE2)
+                                                                                                +V_MERITPAY_IMCOME_RATIO*P.CALINCOME2/DECODE(P.ROUTECALINCOME2,0,1,P.ROUTECALINCOME2)   
+                                                                    )
+                                           when p.emptype='2' --乘务员
+                                                     then MAX(H.PERFORMANCESUM-H.INCOMEDEDUCTIONS)
+                                                                 *P.CALINCOME2/DECODE(P.ROUTECALINCOME2,0,1,P.ROUTECALINCOME2)   
+                                                                   
+                                      end ,
+                                   max(nvl(h.standardincome,0)+nvl(h.floatincome,0))  ,
+                                    max(nvl(h.performancesum,0) ),
+                                    max(nvl(h.incomedeductions,0) )                                                                        
+                                  from HR_PZH_ROUTESTANDARDLD  H
+                                         WHERE H.MONTH= P.MONTH
+                                         AND H.EMPTYPE=p.emptype --考虑乘务员
+                                         AND H.ROUTEID=P.ROUTEID)
+     where p.month = P_MONTH 
+     and P.ROUTECALINCOME2>0
+   --  AND P.EMPTYPE='1'
+     ;      
+     commit;
+   --计算个人超欠额  亏欠营收(不小于0（【绩效单位收入】-【个人百公里收入】）*【折算公里】/100)
+     update PZH_HR_EMP_DATA p
+       set p.incomedifference = round((case when   abs(p.SHIFTINCOMEPENT-p.ROUTEINCOMESTD)<=10 
+                                                   then (p.SHIFTINCOMEPENT-p.ROUTEINCOMESTD)*0.1
+                                               when  abs(p.SHIFTINCOMEPENT-p.ROUTEINCOMESTD)>=10 
+                                                 and  abs(p.SHIFTINCOMEPENT-p.ROUTEINCOMESTD)<20
+                                                 then (case when  p.SHIFTINCOMEPENT>p.ROUTEINCOMESTD 
+                                                                    then 1+ 0.2*(p.SHIFTINCOMEPENT-p.ROUTEINCOMESTD-10)
+                                                                else  -1- 0.2*(p.ROUTEINCOMESTD-p.SHIFTINCOMEPENT-10)
+                                                          end)
+                                                 when  abs(p.SHIFTINCOMEPENT-p.ROUTEINCOMESTD)>=20 
+                                                 then  (case when  p.SHIFTINCOMEPENT>p.ROUTEINCOMESTD 
+                                                                    then 3+ 0.3*(p.SHIFTINCOMEPENT-p.ROUTEINCOMESTD-20)
+                                                                 else  -3- 0.3*(p.ROUTEINCOMESTD-p.SHIFTINCOMEPENT-20)
+                                                          end)
+                                           end)*p.calmile1/100,2),
+           p.oweincome= round(case when p.calincome1*100/DECODE(NVL(p.calmile1,0),0,1,p.calmile1)<p.ROUTEINCOMESTD 
+                                                   then  (p.ROUTEINCOMESTD-p.calincome1*100/DECODE(NVL(p.calmile1,0),0,1,p.calmile1))*p.calmile1/100
+                                                 else 0
+                                           end,2)  
+                                        
+     where p.month = P_MONTH and p.calmile1>0
+     --AND P.EMPTYPE='1'
+     ;      
+     commit;
+     --绩效收入部分
+     UPDATE PZH_HR_EMP_DATA P 
+            SET P.REALMERITPAYINCOME=
+                    V_DRIVER_MERITPAY_INCOME*p.meritpay+P.incomedifference
+     where p.month = P_MONTH 
+     AND P.EMPTYPE='1';  
+     UPDATE PZH_HR_EMP_DATA P 
+            SET P.REALMERITPAYINCOME=
+                    V_STEWARD_MERITPAY_INCOME*p.meritpay+P.incomedifference
+     where p.month = P_MONTH 
+     AND P.EMPTYPE='2';    
+     COMMIT; 
+     --绩效驾驶员安全、服务、材料
+     UPDATE PZH_HR_EMP_DATA P 
+            SET (P.REALMERITPAYMATERIAL,P.REALMERITPAYSAFE,P.REALMERITPAYSERVICE,p.realmeritpayclean)=
+                           (select    (CASE WHEN SUM(e.V6)-p.oweincome>0 THEN --有疑问 如果 亏欠营收大于 节油奖
+                                                              -p.oweincome+SUM(e.V6)+SUM(E.V7)+ V_DRIVER_MERITPAY_MATERIAL* p.meritpay
+                                                  WHEN SUM(e.V6)<0 then 
+                                                           SUM(e.V6)+SUM(E.V7)+ V_DRIVER_MERITPAY_MATERIAL* p.meritpay
+                                                  ELSE  SUM(E.V7)+ V_DRIVER_MERITPAY_MATERIAL* p.meritpay                                                      
+                                              END),
+                                            (CASE WHEN V_DRIVER_MERITPAY_SAFE* p.meritpay-SUM(V15)<0
+                                                    THEN 0
+                                                    ELSE V_DRIVER_MERITPAY_SAFE* p.meritpay-SUM(V15)
+                                             END),                                            
+                                            (CASE WHEN V_DRIVER_MERITPAY_SERVICE* p.meritpay-SUM(V16)<0
+                                                    THEN 0
+                                                    ELSE V_DRIVER_MERITPAY_SERVICE* p.meritpay-SUM(V16)   
+                                             END)  
+                                 ,0                  
+                                from HR_SALARYIMPORTDATAGD E
+                               where E.EMPID=P.EMPID AND E.MONTH=P.MONTH)
+     where p.month = P_MONTH 
+     AND P.EMPTYPE='1';    
+     COMMIT; 
+      --绩效乘务员安全、服务、材料，保洁
+     UPDATE PZH_HR_EMP_DATA P 
+            SET (P.REALMERITPAYMATERIAL,P.REALMERITPAYSAFE,P.REALMERITPAYSERVICE,p.realmeritpayclean)=
+                           (select 0,
+                                            (CASE WHEN V_STEWARD_MERITPAY_SAFE* p.meritpay-SUM(V15)<0
+                                                    THEN 0
+                                                    ELSE V_STEWARD_MERITPAY_SAFE* p.meritpay-SUM(V15)
+                                             END),                                            
+                                            (CASE WHEN V_STEWARD_MERITPAY_SERVICE* p.meritpay-SUM(V16)<0
+                                                    THEN 0
+                                                    ELSE V_STEWARD_MERITPAY_SERVICE* p.meritpay-SUM(V16)   
+                                             END)  ,                                            
+                                            (CASE WHEN V_STEWARD_MERITPAY_CLEAN* p.meritpay-SUM(V17)<0
+                                                    THEN 0
+                                                    ELSE V_STEWARD_MERITPAY_CLEAN* p.meritpay-SUM(V17)   
+                                             END)                     
+                                from HR_SALARYIMPORTDATAGD E
+                               where E.EMPID=P.EMPID AND E.MONTH=P.MONTH)
+     where p.month = P_MONTH 
+     AND P.EMPTYPE='2';    
+     COMMIT; 
+    update    MCPROCEDURELOGLD a
+              set  EXECENDTIME=sysdate
+                   ,ISFINISH='1'
+                   ,PROGRESS='已结束'
+                   ,MEMOS=V_MONTH||'【司乘薪资中间数据计算】已计算完成。'            
+     where LOGID=S_ID;
+    commit;
+    exception WHEN OTHERS THEN
+     update    MCPROCEDURELOGLD a
+              set  EXECENDTIME=sysdate
+                   ,ISFINISH='1'
+                   ,PROGRESS='异常退出'
+                   ,MEMOS=V_MONTH||'【司乘薪资中间数据计算】计算过程中出现异常，请排查数据或联系系统管理员处理。'            
+     where LOGID=S_ID;
+    commit;
+--
+  END P_HR_DRIVER_DATA_AFTER_ALTER;
+  --工龄工资
+  PROCEDURE P_HR_SERVICEAGE(V_STARTDATE DATE, --工龄工资
+                            V_ENDDATE   DATE, --统计结束日期
+                            V_RECDATE   DATE, --记录日期
+                            V_MONTH     VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+                            V_EMPIDS    VARCHAR2, --人员编号
+                            V_SSGID     VARCHAR2, --账套编号
+                            V_ITEMVALUE VARCHAR2, --共通项值
+                            V_ITEMKEY   VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_SERVICEAGE
+    用途：计算工龄工资
+    说明：工龄工资对应字典项 HRSALARYDVM=7
+          工龄*12
+          工龄导入
+     Create：   CoICE    20151127
+    *****************************************************************************/  
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+    V_SERVICEAGE_SALARY_STD1 number := 1;
+    V_SERVICEAGE_SALARY_STD2 number := 3;
+    V_WORKDAYS_STD number := 20.83;
+    --v_itemvalue number:=7;
+    --v_itemkey VARCHAR2(64):='工龄工资';
+  BEGIN
+    -- 获取标准
+    SELECT VALUE
+      INTO V_WORKDAYS_STD
+      FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'WORKDAYS_STD';
+    SELECT VALUE
+      INTO V_SERVICEAGE_SALARY_STD1
+      FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'SERVICEAGE_SALARY_STD1';
+    SELECT VALUE
+      INTO V_SERVICEAGE_SALARY_STD2
+      FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'SERVICEAGE_SALARY_STD2';
+    --1有人 追加或者重新生成部分人员
+    IF V_EMPIDS is not null then
+      --1.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE INSTR(',' || V_EMPIDS || ',', ',' || M.EMPID || ',') > 0
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --1.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+        SELECT S_HRMONTHLYRECGD.NEXTVAL,
+               P_MONTH,
+               SYSDATE,
+               E.EMPID,
+               (CASE WHEN NVL(E.SERVICEAGE, 0)<=5 AND P.CALMILE1>=P.ROUTEDAYMILE*V_WORKDAYS_STD  
+                            THEN               NVL(E.SERVICEAGE, 0) * V_SERVICEAGE_SALARY_STD1 
+                       WHEN NVL(E.SERVICEAGE, 0)<=5 AND P.CALMILE1<P.ROUTEDAYMILE*V_WORKDAYS_STD  
+                            THEN               NVL(E.SERVICEAGE, 0) * V_SERVICEAGE_SALARY_STD1 *P.CALMILE1/(P.ROUTEDAYMILE*V_WORKDAYS_STD)
+                     WHEN NVL(E.SERVICEAGE, 0)>5 AND P.CALMILE1>=P.ROUTEDAYMILE*V_WORKDAYS_STD  
+                            THEN               NVL(E.SERVICEAGE, 0) * V_SERVICEAGE_SALARY_STD2 
+                       WHEN NVL(E.SERVICEAGE, 0)>5 AND P.CALMILE1<P.ROUTEDAYMILE*V_WORKDAYS_STD  
+                            THEN               NVL(E.SERVICEAGE, 0) * V_SERVICEAGE_SALARY_STD2 *P.CALMILE1/(P.ROUTEDAYMILE*V_WORKDAYS_STD)
+                END),               
+               v_itemvalue,
+               v_itemkey
+          FROM MCEMPLOYEEINFOGS E,PZH_HR_EMP_DATA P
+         WHERE INSTR(',' || V_EMPIDS || ',', ',' || E.EMPID || ',') > 0
+           AND P.ROUTEDAYMILE>0
+          AND  P.EMPID=E.EMPID AND P.MONTH=P_MONTH;
+    END IF;
+    --2 帐套重新生成
+    IF V_SSGID IS NOT NULL AND V_EMPIDS IS NULL THEN
+      --2.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE M.EMPID IN
+             (SELECT EMPID
+                FROM HR_STAFFSALARYSETSETUPGD S
+               WHERE S.SSGID = V_SSGID
+                 AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE)
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --2.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, EMPID, RECDATE, REAL, ITEMVALUE, ITEMKEY)
+        SELECT S_HRMONTHLYRECGD.NEXTVAL,
+               P_MONTH,
+               E.EMPID,
+               SYSDATE,
+               (CASE WHEN NVL(E.SERVICEAGE, 0)<=5 AND P.CALMILE1>=P.ROUTEDAYMILE*V_WORKDAYS_STD  
+                            THEN               NVL(E.SERVICEAGE, 0) * V_SERVICEAGE_SALARY_STD1 
+                       WHEN NVL(E.SERVICEAGE, 0)<=5 AND P.CALMILE1<P.ROUTEDAYMILE*V_WORKDAYS_STD  
+                            THEN               NVL(E.SERVICEAGE, 0) * V_SERVICEAGE_SALARY_STD1 *P.CALMILE1/(P.ROUTEDAYMILE*V_WORKDAYS_STD)
+                     WHEN NVL(E.SERVICEAGE, 0)>5 AND P.CALMILE1>=P.ROUTEDAYMILE*V_WORKDAYS_STD  
+                            THEN               NVL(E.SERVICEAGE, 0) * V_SERVICEAGE_SALARY_STD2 
+                       WHEN NVL(E.SERVICEAGE, 0)>5 AND P.CALMILE1<P.ROUTEDAYMILE*V_WORKDAYS_STD  
+                            THEN               NVL(E.SERVICEAGE, 0) * V_SERVICEAGE_SALARY_STD2 *P.CALMILE1/(P.ROUTEDAYMILE*V_WORKDAYS_STD)
+                END),            
+               v_itemvalue,
+               v_itemkey
+          FROM MCEMPLOYEEINFOGS E, HR_STAFFSALARYSETSETUPGD S,PZH_HR_EMP_DATA P
+         WHERE E.EMPID = S.EMPID
+           AND S.SSGID = V_SSGID
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE
+           AND  P.EMPID=E.EMPID AND P.MONTH=P_MONTH;
+    END IF;
+    COMMIT;
+  END P_HR_SERVICEAGE;
+  --驾驶员岗位工资
+  PROCEDURE P_HR_GANGWEI(V_STARTDATE DATE, --
+                              V_ENDDATE   DATE, --统计结束日期
+                              V_RECDATE   DATE, --记录日期
+                              V_MONTH     VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+                              V_EMPIDS    VARCHAR2, --人员编号
+                              V_SSGID     VARCHAR2, --账套编号
+                              V_ITEMVALUE VARCHAR2, --共通项值
+                              V_ITEMKEY   VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_GANGWEI
+    用途：驾驶员岗位工资
+    说明：工龄工资对应字典项 HRSALARYDVM=    
+     Create：   CoICE    20151223
+    *****************************************************************************/
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+    V_COUNT number := 0;
+    V_WORKDAYS_STD number := 20.83;
+  BEGIN
+    -- 获取标准
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'WORKDAYS_STD';
+     IF V_COUNT>0 THEN
+          SELECT VALUE INTO V_WORKDAYS_STD
+                 FROM HR_SALARY_CONFIGS C
+           WHERE C.SECTION = 'WORKDAYS_STD';
+      END IF;
+    --1有人 追加或者重新生成部分人员
+    IF V_EMPIDS is not null then
+      --1.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE INSTR(',' || V_EMPIDS || ',', ',' || M.EMPID || ',') > 0
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --1.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(CASE WHEN P.CALMILE1>=V_WORKDAYS_STD*P.ROUTEDAYMILE THEN P.POSTSALARYSTD
+                                         ELSE  P.POSTSALARYSTD*P.CALMILE1/V_WORKDAYS_STD/P.ROUTEDAYMILE
+                                  END ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P.ROUTEDAYMILE>0
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE
+           AND INSTR(',' || V_EMPIDS || ',', ',' || S.EMPID || ',') > 0;
+    END IF;
+    --2 帐套重新生成
+    IF V_SSGID IS NOT NULL AND V_EMPIDS IS NULL THEN
+      --2.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE M.EMPID IN
+             (SELECT EMPID
+                FROM HR_STAFFSALARYSETSETUPGD S
+               WHERE S.SSGID = V_SSGID
+                 AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE)
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --2.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(CASE WHEN P.CALMILE1>=V_WORKDAYS_STD*P.ROUTEDAYMILE THEN P.POSTSALARYSTD
+                                         ELSE  P.POSTSALARYSTD*P.CALMILE1/V_WORKDAYS_STD/P.ROUTEDAYMILE
+                                  END ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND NVL(P.ROUTEDAYMILE,0)>0
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE;
+    END IF; 
+    COMMIT;
+  END P_HR_GANGWEI;
+  --加班工资
+  PROCEDURE P_HR_JIABAN(V_STARTDATE DATE, --
+                              V_ENDDATE   DATE, --统计结束日期
+                              V_RECDATE   DATE, --记录日期
+                              V_MONTH     VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+                              V_EMPIDS    VARCHAR2, --人员编号
+                              V_SSGID     VARCHAR2, --账套编号
+                              V_ITEMVALUE VARCHAR2, --共通项值
+                              V_ITEMKEY   VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_JIABAN
+    用途：驾驶员加班工资
+    说明：工龄工资对应字典项 HRSALARYDVM=
+    if【101】-【107】-【103】*【25.33】>0
+ then 
+【岗位工资标准】*2*（【101】-【107】-【103】*【25.33】）/(【21.75】*【103】)
++ 【岗位工资标准】*1.5*（【25.33】-【20.83】）/【21.75】
+IF【101】-【107】-【103】*【25.33】=<0
+   AND 
+ 【101】-【107】-【103】*【20.83】>0
+THEN 
+【岗位工资标准】*1.5*（【101】-【107】-【103】*【20.83】）/(【21.75】*【103】)
+ELSE 0
+    
+     Create：   CoICE    20151127
+    *****************************************************************************/
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+    V_COUNT number := 0;
+    V_WORKDAYS_STD number := 20.83;
+    V_WORKDAYS_STD_DS number := 25.33;
+    V_Average_days number := 21.75;
+  BEGIN
+    -- 获取标准
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'WORKDAYS_STD';
+     IF V_COUNT>0 THEN
+          SELECT VALUE INTO V_WORKDAYS_STD
+                 FROM HR_SALARY_CONFIGS C
+           WHERE C.SECTION = 'WORKDAYS_STD';
+      END IF;   
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'WORKDAYS_STD_DS';   
+    IF V_COUNT>0 THEN  
+        SELECT VALUE  INTO V_WORKDAYS_STD_DS
+               FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'WORKDAYS_STD_DS';
+          END IF; 
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'Average_days';   
+    IF V_COUNT>0 THEN  
+        SELECT VALUE  INTO V_Average_days
+               FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'Average_days';
+          END IF;
+    --1有人 追加或者重新生成部分人员
+    IF V_EMPIDS is not null then
+      --1.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE INSTR(',' || V_EMPIDS || ',', ',' || M.EMPID || ',') > 0
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --1.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(CASE WHEN P.CALMILE1-P.HOLIDAYCALMILE-V_WORKDAYS_STD_DS*P.ROUTEDAYMILE >=0
+                                   THEN P.POSTSALARYSTD*2*(P.CALMILE1-P.HOLIDAYCALMILE-V_WORKDAYS_STD_DS*P.ROUTEDAYMILE)/V_Average_days/P.ROUTEDAYMILE
+                                        + P.POSTSALARYSTD*1.5*(V_WORKDAYS_STD_DS-V_WORKDAYS_STD)/V_Average_days
+                                      WHEN  P.CALMILE1-P.HOLIDAYCALMILE-V_WORKDAYS_STD*P.ROUTEDAYMILE<=0
+                                    THEN 0
+                                  ELSE P.POSTSALARYSTD*1.5*(P.CALMILE1-P.HOLIDAYCALMILE-V_WORKDAYS_STD*P.ROUTEDAYMILE)/V_Average_days/P.ROUTEDAYMILE
+                                  END ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND NVL(P.ROUTEDAYMILE,0)>0
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE
+           AND INSTR(',' || V_EMPIDS || ',', ',' || S.EMPID || ',') > 0;
+    END IF;
+    --2 帐套重新生成
+    IF V_SSGID IS NOT NULL AND V_EMPIDS IS NULL THEN
+      --2.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE M.EMPID IN
+             (SELECT EMPID
+                FROM HR_STAFFSALARYSETSETUPGD S
+               WHERE S.SSGID = V_SSGID
+                 AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE)
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --2.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(CASE WHEN P.CALMILE1-P.HOLIDAYCALMILE-V_WORKDAYS_STD_DS*P.ROUTEDAYMILE >=0
+                                   THEN P.POSTSALARYSTD*2*(P.CALMILE1-P.HOLIDAYCALMILE-V_WORKDAYS_STD_DS*P.ROUTEDAYMILE)/V_Average_days/P.ROUTEDAYMILE
+                                        + P.POSTSALARYSTD*1.5*(V_WORKDAYS_STD_DS-V_WORKDAYS_STD)/V_Average_days
+                                      WHEN  P.CALMILE1-P.HOLIDAYCALMILE-V_WORKDAYS_STD*P.ROUTEDAYMILE<=0
+                                    THEN 0
+                                  ELSE P.POSTSALARYSTD*1.5*(P.CALMILE1-P.HOLIDAYCALMILE-V_WORKDAYS_STD*P.ROUTEDAYMILE)/V_Average_days/P.ROUTEDAYMILE
+                                  END ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND NVL(P.ROUTEDAYMILE,0)>0
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE;
+    END IF; 
+    COMMIT;
+  END P_HR_JIABAN;
+  --假日工资
+  PROCEDURE P_HR_JIERI(V_STARTDATE DATE, --
+                              V_ENDDATE   DATE, --统计结束日期
+                              V_RECDATE   DATE, --记录日期
+                              V_MONTH     VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+                              V_EMPIDS    VARCHAR2, --人员编号
+                              V_SSGID     VARCHAR2, --账套编号
+                              V_ITEMVALUE VARCHAR2, --共通项值
+                              V_ITEMKEY   VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_JIERI
+    用途：获取最低工资标准
+    说明：工龄工资对应字典项 HRSALARYDVM=
+    【驾驶员法定节假日折算里程】*3*【1380】*【岗位系数】/【103】/[21.75]
+     Create：   CoICE    20151127
+    *****************************************************************************/
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+    V_COUNT number := 0;
+    V_Minimum_Wage_STD number := 1380;
+    V_Average_days number := 21.75;
+    --v_itemvalue number:=7;
+    --v_itemkey VARCHAR2(64):='工龄工资';
+  BEGIN
+    -- 获取标准
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'Minimum_Wage_STD';   
+    IF V_COUNT>0 THEN  
+        SELECT VALUE
+          INTO V_Minimum_Wage_STD
+          FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'Minimum_Wage_STD';
+     END IF;
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'Average_days';   
+    IF V_COUNT>0 THEN  
+        SELECT VALUE  INTO V_Average_days
+               FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'Average_days';
+          END IF;
+    --1有人 追加或者重新生成部分人员
+    IF V_EMPIDS is not null then
+      --1.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE INSTR(',' || V_EMPIDS || ',', ',' || M.EMPID || ',') > 0
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --1.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(3*P.HOLIDAYCALMILE*V_Minimum_Wage_STD/P.ROUTEDAYMILE/V_Average_days   ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P.ROUTEDAYMILE>0
+           AND P.HOLIDAYCALMILE>0
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE
+           AND INSTR(',' || V_EMPIDS || ',', ',' || S.EMPID || ',') > 0;
+    END IF;
+    --2 帐套重新生成
+    IF V_SSGID IS NOT NULL AND V_EMPIDS IS NULL THEN
+      --2.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE M.EMPID IN
+             (SELECT EMPID
+                FROM HR_STAFFSALARYSETSETUPGD S
+               WHERE S.SSGID = V_SSGID
+                 AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE)
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --2.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(3*P.HOLIDAYCALMILE*V_Minimum_Wage_STD/P.ROUTEDAYMILE/V_Average_days   ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P.ROUTEDAYMILE>0
+           AND P.HOLIDAYCALMILE>0
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE;
+    END IF; 
+    COMMIT;
+  END P_HR_JIERI;
+  --最低工资标准
+  PROCEDURE P_HR_JIXIAO(V_STARTDATE DATE, --
+                              V_ENDDATE   DATE, --统计结束日期
+                              V_RECDATE   DATE, --记录日期
+                              V_MONTH     VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+                              V_EMPIDS    VARCHAR2, --人员编号
+                              V_SSGID     VARCHAR2, --账套编号
+                              V_ITEMVALUE VARCHAR2, --共通项值
+                              V_ITEMKEY   VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_Minimum_Wage
+    用途：获取最低工资标准
+    说明：工龄工资对应字典项 HRSALARYDVM=
+    
+     Create：   CoICE    20151127
+    *****************************************************************************/
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+    V_Minimum_Wage_STD number := 1630;
+    --v_itemvalue number:=7;
+    --v_itemkey VARCHAR2(64):='工龄工资';
+  BEGIN
+    -- 获取标准
+    SELECT VALUE
+      INTO V_Minimum_Wage_STD
+      FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'Minimum_Wage_STD';
+    --1有人 追加或者重新生成部分人员
+    IF V_EMPIDS is not null then
+      --1.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE INSTR(',' || V_EMPIDS || ',', ',' || M.EMPID || ',') > 0
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --1.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     (NVL(p.realmeritpaysafe,0)+
+                      NVL(p.realmeritpayservice,0)+
+                      NVL(p.realmeritpayincome,0)+
+                      NVL(p.realmeritpaymaterial,0)+
+                      NVL(p.realmeritpayclean,0) ),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE
+           AND INSTR(',' || V_EMPIDS || ',', ',' || S.EMPID || ',') > 0;
+    END IF;
+    --2 帐套重新生成
+    IF V_SSGID IS NOT NULL AND V_EMPIDS IS NULL THEN
+      --2.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE M.EMPID IN
+             (SELECT EMPID
+                FROM HR_STAFFSALARYSETSETUPGD S
+               WHERE S.SSGID = V_SSGID
+                 AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE)
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --2.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     (p.realmeritpaysafe+p.realmeritpayservice+p.realmeritpayincome+p.realmeritpaymaterial ),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE;
+    END IF; 
+    COMMIT;
+  END P_HR_JIXIAO;
+  --病假工资
+  PROCEDURE P_HR_BINGJIA(V_STARTDATE DATE, --
+                              V_ENDDATE   DATE, --统计结束日期
+                              V_RECDATE   DATE, --记录日期
+                              V_MONTH     VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+                              V_EMPIDS    VARCHAR2, --人员编号
+                              V_SSGID     VARCHAR2, --账套编号
+                              V_ITEMVALUE VARCHAR2, --共通项值
+                              V_ITEMKEY   VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_BINGJIA
+    用途：病假工资
+    说明：0.8*[51]*【1380】/【日历天数】
+    
+     Create：   CoICE    20151127
+    *****************************************************************************/
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+    V_COUNT number := 0;
+    V_Minimum_Wage_STD number := 1630;
+    V_SICK_WAGE_RATIO number:=0.8;
+    --v_itemkey VARCHAR2(64):='工龄工资';
+    V_DAYS number := 30;
+  BEGIN
+    -- 获取标准
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'Minimum_Wage_STD';   
+    IF V_COUNT>0 THEN  
+        SELECT VALUE
+          INTO V_Minimum_Wage_STD
+          FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'Minimum_Wage_STD';
+     END IF;
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'SICK_WAGE_RATIO';   
+    IF V_COUNT>0 THEN  
+        SELECT VALUE
+          INTO V_SICK_WAGE_RATIO
+          FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'SICK_WAGE_RATIO';
+     END IF;
+     SELECT add_months(to_date(P_MONTH, 'yyyymm'), 1)- to_date(P_MONTH, 'yyyymm')
+         INTO V_DAYS  FROM DUAL;
+    --1有人 追加或者重新生成部分人员
+    IF V_EMPIDS is not null then
+      --1.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE INSTR(',' || V_EMPIDS || ',', ',' || M.EMPID || ',') > 0
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --1.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(V_SICK_WAGE_RATIO*V_Minimum_Wage_STD/V_DAYS   ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM HR_SALARYIMPORTDATAGD          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P.V10>0
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE
+           AND INSTR(',' || V_EMPIDS || ',', ',' || S.EMPID || ',') > 0;
+    END IF;
+    --2 帐套重新生成
+    IF V_SSGID IS NOT NULL AND V_EMPIDS IS NULL THEN
+      --2.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE M.EMPID IN
+             (SELECT EMPID
+                FROM HR_STAFFSALARYSETSETUPGD S
+               WHERE S.SSGID = V_SSGID
+                 AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE)
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --2.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(V_SICK_WAGE_RATIO*V_Minimum_Wage_STD/V_DAYS   ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM HR_SALARYIMPORTDATAGD          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P.V10>0
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE;
+    END IF; 
+    COMMIT;
+  END P_HR_BINGJIA;
+  --年休工资
+  PROCEDURE P_HR_NIANXIU(V_STARTDATE DATE, --
+                              V_ENDDATE   DATE, --统计结束日期
+                              V_RECDATE   DATE, --记录日期
+                              V_MONTH     VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+                              V_EMPIDS    VARCHAR2, --人员编号
+                              V_SSGID     VARCHAR2, --账套编号
+                              V_ITEMVALUE VARCHAR2, --共通项值
+                              V_ITEMKEY   VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_NIANXIU
+    用途：获取最低工资标准
+    说明：工【111】不小于[1380] 小于时 按[1380]
+               [151]*【111】/[21.75]
+     Create：   CoICE    20151127
+    *****************************************************************************/
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+   V_COUNT number := 0;
+    V_Minimum_Wage_STD number := 1380;
+    V_Average_days number := 21.75;
+    --v_itemvalue number:=7;
+    --v_itemkey VARCHAR2(64):='工龄工资';
+  BEGIN
+    -- 获取标准
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'Minimum_Wage_STD';   
+    IF V_COUNT>0 THEN  
+        SELECT VALUE
+          INTO V_Minimum_Wage_STD
+          FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'Minimum_Wage_STD';
+     END IF;
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'Average_days';   
+    IF V_COUNT>0 THEN  
+        SELECT VALUE  INTO V_Average_days
+               FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'Average_days';
+          END IF;
+    --1有人 追加或者重新生成部分人员
+    IF V_EMPIDS is not null then
+      --1.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE INSTR(',' || V_EMPIDS || ',', ',' || M.EMPID || ',') > 0
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --1.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(CASE WHEN Y.annuitiesbase>=V_Minimum_Wage_STD 
+                                     THEN P.V9*Y.annuitiesbase/V_Average_days
+                                 ELSE  P.V9*V_Minimum_Wage_STD/V_Average_days
+                                 END
+                            ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM HR_SALARYIMPORTDATAGD          P,
+               HR_STAFFSALARYSETSETUPGD S,
+               (SELECT EMPID ,annuitiesbase FROM HR_EMPINSURANCEGD Y1
+                       WHERE P_MONTH BETWEEN Y1.STARTDATE AND ENDDATE) Y
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P.V9>0
+           AND S.EMPID=Y.EMPID(+)
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE
+           AND INSTR(',' || V_EMPIDS || ',', ',' || S.EMPID || ',') > 0;
+    END IF;
+    --2 帐套重新生成
+    IF V_SSGID IS NOT NULL AND V_EMPIDS IS NULL THEN
+      --2.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE M.EMPID IN
+             (SELECT EMPID
+                FROM HR_STAFFSALARYSETSETUPGD S
+               WHERE S.SSGID = V_SSGID
+                 AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE)
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --2.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(CASE WHEN Y.annuitiesbase>=V_Minimum_Wage_STD 
+                                     THEN P.V9*Y.annuitiesbase/V_Average_days
+                                 ELSE  P.V9*V_Minimum_Wage_STD/V_Average_days
+                                 END
+                            ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM HR_SALARYIMPORTDATAGD          P,
+               HR_STAFFSALARYSETSETUPGD S,
+               (SELECT EMPID ,annuitiesbase FROM HR_EMPINSURANCEGD 
+                       WHERE P_MONTH BETWEEN STARTDATE AND ENDDATE) Y
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P.V9>0
+           AND S.EMPID=Y.EMPID(+)
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE;
+    END IF; 
+    COMMIT;
+  END P_HR_NIANXIU;
+  --清凉
+  PROCEDURE P_HR_QINGLIANG(V_STARTDATE DATE, --
+                              V_ENDDATE   DATE, --统计结束日期
+                              V_RECDATE   DATE, --记录日期
+                              V_MONTH     VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+                              V_EMPIDS    VARCHAR2, --人员编号
+                              V_SSGID     VARCHAR2, --账套编号
+                              V_ITEMVALUE VARCHAR2, --共通项值
+                              V_ITEMKEY   VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_QINGLIANG
+    用途：清凉
+    说明：4-9月发放
+    【一线清凉费标准】*（【日历天数】-[51]-[64])
+     Create：   CoICE    20151127
+    *****************************************************************************/
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+    V_COUNT number := 0;
+    V_COOL_WAGE_STD1 number := 0.45;
+    --v_itemkey VARCHAR2(64):='工龄工资';
+    V_DAYS number := 30;
+  BEGIN
+  IF TO_NUMBER(SUBSTR(P_MONTH,5,2))>3 AND TO_NUMBER(SUBSTR(P_MONTH,5,2))<10 THEN
+  BEGIN  
+    -- 获取标准
+     -- 获取标准
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'COOL_WAGE_STD1';   
+    IF V_COUNT>0 THEN  
+        SELECT VALUE
+          INTO V_COOL_WAGE_STD1
+          FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'COOL_WAGE_STD1';
+     END IF;
+     SELECT add_months(to_date(P_MONTH, 'yyyymm'), 1)- to_date(P_MONTH, 'yyyymm')
+         INTO V_DAYS  FROM DUAL;
+    --1有人 追加或者重新生成部分人员
+    IF V_EMPIDS is not null then
+      --1.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE INSTR(',' || V_EMPIDS || ',', ',' || M.EMPID || ',') > 0
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --1.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(V_COOL_WAGE_STD1*(V_DAYS-P.V10-P.V11)
+                            ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM HR_SALARYIMPORTDATAGD          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE
+           AND INSTR(',' || V_EMPIDS || ',', ',' || S.EMPID || ',') > 0;
+    END IF;
+    --2 帐套重新生成
+    IF V_SSGID IS NOT NULL AND V_EMPIDS IS NULL THEN
+      --2.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE M.EMPID IN
+             (SELECT EMPID
+                FROM HR_STAFFSALARYSETSETUPGD S
+               WHERE S.SSGID = V_SSGID
+                 AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE)
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --2.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(V_COOL_WAGE_STD1*(V_DAYS-P.V10-P.V11)
+                            ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM HR_SALARYIMPORTDATAGD          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE;
+    END IF; 
+    COMMIT;
+    END;
+    END IF;
+  END P_HR_QINGLIANG;
+  --洗理
+  PROCEDURE P_HR_XILI(V_STARTDATE DATE, --
+                              V_ENDDATE   DATE, --统计结束日期
+                              V_RECDATE   DATE, --记录日期
+                              V_MONTH     VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+                              V_EMPIDS    VARCHAR2, --人员编号
+                              V_SSGID     VARCHAR2, --账套编号
+                              V_ITEMVALUE VARCHAR2, --共通项值
+                              V_ITEMKEY   VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_XILI
+    用途：洗理
+    说明：工龄工资对应字典项 HRSALARYDVM=
+    
+     Create：   CoICE    20151127
+    *****************************************************************************/
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+    --v_itemvalue number:=7;
+    --v_itemkey VARCHAR2(64):='工龄工资';
+  BEGIN
+    --1有人 追加或者重新生成部分人员
+    IF V_EMPIDS is not null then
+      --1.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE INSTR(',' || V_EMPIDS || ',', ',' || M.EMPID || ',') > 0
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --1.2 insert 新数据      
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     H.V13,
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S,
+               HR_SALARYIMPORTDATAGD H
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND S.EMPID=H.EMPID
+           AND H.MONTH=P_MONTH
+           AND P.MONTH=P_MONTH
+           AND P.CALMILE1>0
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE
+           AND INSTR(',' || V_EMPIDS || ',', ',' || S.EMPID || ',') > 0;
+    END IF;
+    --2 帐套重新生成
+    IF V_SSGID IS NOT NULL AND V_EMPIDS IS NULL THEN
+      --2.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE M.EMPID IN
+             (SELECT EMPID
+                FROM HR_STAFFSALARYSETSETUPGD S
+               WHERE S.SSGID = V_SSGID
+                 AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE)
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --2.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     H.V13,
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S,
+               HR_SALARYIMPORTDATAGD H
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND S.EMPID=H.EMPID
+           AND H.MONTH=P_MONTH
+           AND P.MONTH=P_MONTH
+           AND P.CALMILE1>0
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE;
+    END IF; 
+    COMMIT;
+  END P_HR_XILI;
+  --洗理
+  PROCEDURE P_HR_SHUIDIAN(V_STARTDATE DATE, --
+                              V_ENDDATE   DATE, --统计结束日期
+                              V_RECDATE   DATE, --记录日期
+                              V_MONTH     VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+                              V_EMPIDS    VARCHAR2, --人员编号
+                              V_SSGID     VARCHAR2, --账套编号
+                              V_ITEMVALUE VARCHAR2, --共通项值
+                              V_ITEMKEY   VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_XILI
+    用途：洗理
+    说明：工龄工资对应字典项 HRSALARYDVM=
+    
+     Create：   CoICE    20151127
+    *****************************************************************************/
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+    --v_itemvalue number:=7;
+    --v_itemkey VARCHAR2(64):='工龄工资';
+  BEGIN
+    --1有人 追加或者重新生成部分人员
+    IF V_EMPIDS is not null then
+      --1.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE INSTR(',' || V_EMPIDS || ',', ',' || M.EMPID || ',') > 0
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --1.2 insert 新数据      
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     H.V14,
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S,
+               HR_SALARYIMPORTDATAGD H
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND S.EMPID=H.EMPID
+           AND H.MONTH=P_MONTH
+           AND P.MONTH=P_MONTH
+           AND P.CALMILE1>0
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE
+           AND INSTR(',' || V_EMPIDS || ',', ',' || S.EMPID || ',') > 0;
+    END IF;
+    --2 帐套重新生成
+    IF V_SSGID IS NOT NULL AND V_EMPIDS IS NULL THEN
+      --2.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE M.EMPID IN
+             (SELECT EMPID
+                FROM HR_STAFFSALARYSETSETUPGD S
+               WHERE S.SSGID = V_SSGID
+                 AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE)
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --2.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     H.V14,
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S,
+               HR_SALARYIMPORTDATAGD H
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND S.EMPID=H.EMPID
+           AND H.MONTH=P_MONTH
+           AND P.MONTH=P_MONTH
+           AND P.CALMILE1>0
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE;
+    END IF; 
+    COMMIT;
+  END P_HR_SHUIDIAN;
+  --最低工资标准
+  PROCEDURE P_HR_KAOHUO(V_STARTDATE DATE, --
+                              V_ENDDATE   DATE, --统计结束日期
+                              V_RECDATE   DATE, --记录日期
+                              V_MONTH     VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+                              V_EMPIDS    VARCHAR2, --人员编号
+                              V_SSGID     VARCHAR2, --账套编号
+                              V_ITEMVALUE VARCHAR2, --共通项值
+                              V_ITEMKEY   VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_KAOHUO
+    用途：KAOHUO
+    说明：12-1月发放 不小于0
+【烤火费标准】-(【烤火费标准】/【日历天数】)*([51]+[64])/【日历天数】    
+     Create：   CoICE    20151223
+    *****************************************************************************/
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+   V_COUNT number := 0;
+    V_COLD_WAGE_STD number := 10;
+    --v_itemkey VARCHAR2(64):='工龄工资';
+    V_DAYS number := 30;
+  BEGIN
+  IF TO_NUMBER(SUBSTR(P_MONTH,5,2))=1 OR TO_NUMBER(SUBSTR(P_MONTH,5,2))=12 THEN
+  BEGIN  
+    -- 获取标准
+     -- 获取标准
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'COLD_WAGE_STD';   
+    IF V_COUNT>0 THEN  
+        SELECT VALUE
+          INTO V_COLD_WAGE_STD
+          FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'COLD_WAGE_STD';
+     END IF;
+     SELECT add_months(to_date(P_MONTH, 'yyyymm'), 1)- to_date(P_MONTH, 'yyyymm')
+         INTO V_DAYS  FROM DUAL;
+    --1有人 追加或者重新生成部分人员
+    IF V_EMPIDS is not null then
+      --1.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE INSTR(',' || V_EMPIDS || ',', ',' || M.EMPID || ',') > 0
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --1.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(V_COLD_WAGE_STD- (V_COLD_WAGE_STD*(P.V10+P.V11)/V_DAYS)
+                            ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM HR_SALARYIMPORTDATAGD          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE
+           AND INSTR(',' || V_EMPIDS || ',', ',' || S.EMPID || ',') > 0;
+    END IF;
+    --2 帐套重新生成
+    IF V_SSGID IS NOT NULL AND V_EMPIDS IS NULL THEN
+      --2.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE M.EMPID IN
+             (SELECT EMPID
+                FROM HR_STAFFSALARYSETSETUPGD S
+               WHERE S.SSGID = V_SSGID
+                 AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE)
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --2.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(V_COLD_WAGE_STD- (V_COLD_WAGE_STD*(P.V10+P.V11)/V_DAYS)
+                            ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM HR_SALARYIMPORTDATAGD          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE;
+    END IF; 
+    COMMIT;
+    END;
+    END IF;
+  END P_HR_KAOHUO;
+  --SHIXI
+  PROCEDURE P_HR_SHIXI(V_STARTDATE DATE, --
+                              V_ENDDATE   DATE, --统计结束日期
+                              V_RECDATE   DATE, --记录日期
+                              V_MONTH     VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+                              V_EMPIDS    VARCHAR2, --人员编号
+                              V_SSGID     VARCHAR2, --账套编号
+                              V_ITEMVALUE VARCHAR2, --共通项值
+                              V_ITEMKEY   VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_SHIXI
+    用途：实习工资  V12
+    说明：[52]*【1380】/【日历天数】
+     Create：   CoICE    20151127
+    *****************************************************************************/
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+   V_COUNT number := 0;
+    V_Minimum_Wage_STD number := 1380;
+    V_Average_days number := 21.75;
+    --v_itemvalue number:=7;
+    --v_itemkey VARCHAR2(64):='工龄工资';
+  BEGIN
+    -- 获取标准
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'Minimum_Wage_STD';   
+    IF V_COUNT>0 THEN  
+        SELECT VALUE
+          INTO V_Minimum_Wage_STD
+          FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'Minimum_Wage_STD';
+     END IF;
+     SELECT COUNT(1) INTO V_COUNT
+           FROM HR_SALARY_CONFIGS C
+     WHERE C.SECTION = 'Average_days';   
+    IF V_COUNT>0 THEN  
+        SELECT VALUE  INTO V_Average_days
+               FROM HR_SALARY_CONFIGS C
+         WHERE C.SECTION = 'Average_days';
+          END IF;
+    --1有人 追加或者重新生成部分人员
+    IF V_EMPIDS is not null then
+      --1.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE INSTR(',' || V_EMPIDS || ',', ',' || M.EMPID || ',') > 0
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --1.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND( P.V12*V_Minimum_Wage_STD/V_Average_days
+                            ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM HR_SALARYIMPORTDATAGD          P,
+               HR_STAFFSALARYSETSETUPGD S,
+               (SELECT EMPID ,annuitiesbase FROM HR_EMPINSURANCEGD Y1
+                       WHERE P_MONTH BETWEEN Y1.STARTDATE AND ENDDATE) Y
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P.V12>0
+           AND S.EMPID=Y.EMPID(+)
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE
+           AND INSTR(',' || V_EMPIDS || ',', ',' || S.EMPID || ',') > 0;
+    END IF;
+    --2 帐套重新生成
+    IF V_SSGID IS NOT NULL AND V_EMPIDS IS NULL THEN
+      --2.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE M.EMPID IN
+             (SELECT EMPID
+                FROM HR_STAFFSALARYSETSETUPGD S
+               WHERE S.SSGID = V_SSGID
+                 AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE)
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --2.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND( P.V12*V_Minimum_Wage_STD/V_Average_days
+                            ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM HR_SALARYIMPORTDATAGD          P,
+               HR_STAFFSALARYSETSETUPGD S,
+               (SELECT EMPID ,annuitiesbase FROM HR_EMPINSURANCEGD 
+                       WHERE P_MONTH BETWEEN STARTDATE AND ENDDATE) Y
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P.V12>0
+           AND S.EMPID=Y.EMPID(+)
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE;
+    END IF; 
+    COMMIT;
+  END P_HR_SHIXI;
+  --收入专项
+  PROCEDURE P_HR_SHOURUZHUANXIANG(V_STARTDATE DATE, --
+                              V_ENDDATE   DATE, --统计结束日期
+                              V_RECDATE   DATE, --记录日期
+                              V_MONTH     VARCHAR2, --统计月份（没有用到，为统一参数接口而留）
+                              V_EMPIDS    VARCHAR2, --人员编号
+                              V_SSGID     VARCHAR2, --账套编号
+                              V_ITEMVALUE VARCHAR2, --共通项值
+                              V_ITEMKEY   VARCHAR2) IS
+    /*****************************************************************************
+    1、
+    名称：P_HR_SHOURUZHUANXIANG
+    用途：收入专项
+    说明：【线路绩效发放总额】*{营收专项奖占绩效奖比例}*【102】/【线路总折算收入2】
+               乘务员不发
+     Create：   CoICE    20151127
+    *****************************************************************************/
+    P_MONTH VARCHAR2(20):= REPLACE(V_MONTH,'-');
+  BEGIN
+    --1有人 追加或者重新生成部分人员
+    IF V_EMPIDS is not null then
+      --1.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE INSTR(',' || V_EMPIDS || ',', ',' || M.EMPID || ',') > 0
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --1.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(p.incomedeductions*p.calincome2/P.Routecalincome2 ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P.calincome2>0
+           AND P.Routecalincome2>0
+           and p.emptype='1'
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE
+           AND INSTR(',' || V_EMPIDS || ',', ',' || S.EMPID || ',') > 0;
+    END IF;
+    --2 帐套重新生成
+    IF V_SSGID IS NOT NULL AND V_EMPIDS IS NULL THEN
+      --2.1 delete 原有数据
+      DELETE FROM HRMONTHLYRECGD M
+       WHERE M.EMPID IN
+             (SELECT EMPID
+                FROM HR_STAFFSALARYSETSETUPGD S
+               WHERE S.SSGID = V_SSGID
+                 AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE)
+         AND M.SALARYDATE = P_MONTH
+         AND M.ITEMVALUE = v_itemvalue;
+      --2.2 insert 新数据
+      INSERT INTO HRMONTHLYRECGD
+        (SEQID, SALARYDATE, RECDATE, EMPID, REAL, ITEMVALUE, ITEMKEY)
+          SELECT S_HRMONTHLYRECGD.NEXTVAL,
+                     P_MONTH,
+                     SYSDATE,
+                     S.EMPID,
+                     ROUND(p.incomedeductions*p.calincome2/P.Routecalincome2 ,2),
+                     v_itemvalue,
+                     v_itemkey               
+          FROM PZH_HR_EMP_DATA          P,
+               HR_STAFFSALARYSETSETUPGD S
+         WHERE  S.EMPID = P.EMPID
+           AND S.SSGID = V_SSGID
+           AND P.MONTH=P_MONTH
+           AND P.calincome2>0
+           and p.emptype='1'
+           AND P.Routecalincome2>0
+           AND P_MONTH BETWEEN S.BEGINDATE AND S.ENDDATE;
+    END IF; 
+    COMMIT;
+  END P_HR_SHOURUZHUANXIANG;
+ --获取驾驶员车辆
+  FUNCTION F_HR_GET_EMP_BUSID(V_EMPID     in varchar2,
+                              V_STARTDATE in DATE,
+                              V_ENDDATE   in DATE) return varchar2 IS
+    V_BUSID varchar2(20);
+    v_count number := 0;
+  BEGIN
+    select count(1)
+      into v_count
+      from PZH_HR_EMP_RUNDATA P
+     where P.RUNDATADATE between V_STARTDATE and V_ENDDATE
+       AND P.EMPID = V_EMPID;
+    if v_count > 0 then
+      select p2.busid
+        INTO V_BUSID
+        from (select busid, sum(p.seqnum) seqnum
+                from PZH_HR_EMP_RUNDATA p
+               where p.empid = V_EMPID
+                 AND P.RUNDATADATE between V_STARTDATE and V_ENDDATE
+               group by p.busid
+               order by sum(p.seqnum) desc) p2
+       where rownum = 1;
+    else
+      SELECT MIN(R.BUSID)
+        INTO V_BUSID
+        FROM ASGNRBUSEMPLD R
+       WHERE R.EMPID = V_EMPID;
+    end if;
+    return V_BUSID;
+  END F_HR_GET_EMP_BUSID;
+  --
+    --获取驾驶员车辆
+  FUNCTION F_HR_GET_ROUTE_RATIO(V_ROUTE   NUMBER,
+                              V_DATE in DATE,
+                              V_TYPE NUMBER) return NUMBER IS
+    V_NUMBER NUMBER(8,2):=0 ;
+    v_count number := 0;
+  BEGIN
+    select count(1)
+      into v_count
+      from HR_ROUTEINCOMEGD H
+     where V_DATE BETWEEN H.STARTDATE AND H.ENDDATE
+       AND H.ROUTEID = V_ROUTE;
+    if v_count > 0 then
+        select MAX(DECODE(V_TYPE,0,H.MILE,H.INCOME))
+          into V_NUMBER
+          from HR_ROUTEINCOMEGD H
+         where V_DATE BETWEEN H.STARTDATE AND H.ENDDATE
+           AND H.ROUTEID = V_ROUTE;
+    else
+      V_NUMBER:=0;
+    end if;
+    return V_NUMBER;
+  END F_HR_GET_ROUTE_RATIO;
+  --
+  --
+END PKG_PZH_HR_CALC_SALARY_DRIVER;

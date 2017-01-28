@@ -1,0 +1,18 @@
+--更新班次信息里是否生成出入库非营运车次
+update schplanshiftgd s set s.hasinoutseq=1 where planid='16052514465799000015';
+--更新每班次的出入库信息
+UPDATE  SCHPLANSHIFTDETAILGD C SET C.OUTTIME=C.OUTSITETIME-(15/60/24) ,C.INTIME=C.INSITETIME+(15/60/24) ,
+                                   C.OUTMILE=3.5,C.INMILE=3.5,
+                                   C.OUTSTATIONID='90002',  C.OUTSITEID='90001',
+                                   C.INSTATIONID='90002',  C.INSITEID='90001'
+                                   
+ where planid='16052514465799000015';
+ --删除出入库车次
+delete from SCHPLANSEQUNTRANCEGD c    where planid='16052514465799000015'  AND ACTIONTYPE IN (0,9);
+--插入非营运车次
+insert into SCHPLANSEQUNTRANCEGD
+select s_buslastpassengerdatald5.nextval+1000000000000000000,c.planid,c.planshiftid,null,0,c.outtime,c.outsitetime,c.outstationid,c.outsiteid,c.outmile,1 from SCHPLANSHIFTDETAILGD c
+where planid='16052514465799000015';
+insert into SCHPLANSEQUNTRANCEGD
+select s_buslastpassengerdatald5.nextval+1000000000000000000,c.planid,c.planshiftid,null,9,c.insitetime,c.intime,c.insiteid,c.instationid,c.outmile,1 from SCHPLANSHIFTDETAILGD c
+where planid='16052514465799000015';

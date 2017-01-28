@@ -1,0 +1,115 @@
+---按路队选择线路作为更新条件
+SELECT R.ROUTEID, R.ROUTENAME, O.ORGNAME
+  FROM MCROUTEINFOGS R, MCRORGROUTEGS RO, MCORGINFOGS O
+ WHERE R.ROUTEID = RO.ROUTEID(+)
+   AND RO.ORGID = O.ORGID(+)
+   AND O.ORGNAME IN ('907车队');
+---------测试
+SELECT A.ROUTEID,
+       A.SHIFTNUM,
+       A.TARGETSHIFTNUM,
+       (SELECT AB.SHIFTNUM
+          FROM ASGN_DISPATCH_SHIFTGROUP AB
+         WHERE AB.TARGETSHIFTNUM = A.SHIFTNUM
+           AND AB.ROUTEID = A.ROUTEID
+           AND AB.ENABLE = 1)
+  FROM ASGN_DISPATCH_SHIFTGROUP A
+ WHERE A.ROUTEID IN (SELECT R.ROUTEID
+                       FROM MCROUTEINFOGS R, MCRORGROUTEGS RO, MCORGINFOGS O
+                      WHERE R.ROUTEID = RO.ROUTEID(+)
+                        AND RO.ORGID = O.ORGID(+)
+                        AND O.ORGNAME = '903车队')
+   AND A.ENABLE = 1;
+   SELECT A.ROUTEID,
+       A.SHIFTNUM,
+       A.TARGETSHIFTNUM FROM ASGN_DISPATCH_SHIFTGROUP_bak a WHERE a.routeid IN (SELECT R.ROUTEID
+                       FROM MCROUTEINFOGS R, MCRORGROUTEGS RO, MCORGINFOGS O
+                      WHERE R.ROUTEID = RO.ROUTEID(+)
+                        AND RO.ORGID = O.ORGID(+)
+                        AND O.ORGNAME = '903车队') AND a.enable=1;
+------------------------
+SELECT A.ROUTEID,
+       A.SHIFTNUM,
+       A.Targetbiggroupnum   
+  FROM Asgn_Dispatch_Model A
+ WHERE A.ROUTEID IN (SELECT R.ROUTEID
+                       FROM MCROUTEINFOGS R, MCRORGROUTEGS RO, MCORGINFOGS O
+                      WHERE R.ROUTEID = RO.ROUTEID(+)
+                        AND RO.ORGID = O.ORGID(+)
+                        AND O.ORGNAME = '903车队')
+   AND A.ENABLE = 1;
+   
+------备份表asgn_dispatch_shiftgroup
+DROP TABLE ASGN_DISPATCH_SHIFTGROUP_BAK;
+CREATE TABLE ASGN_DISPATCH_SHIFTGROUP_BAK AS
+  SELECT * FROM ASGN_DISPATCH_SHIFTGROUP;
+------修改asgn_dispatch_shiftgroup
+UPDATE ASGN_DISPATCH_SHIFTGROUP A
+   SET A.TARGETSHIFTNUM =
+       (SELECT AB.SHIFTNUM
+          FROM ASGN_DISPATCH_SHIFTGROUP_BAK AB
+         WHERE AB.TARGETSHIFTNUM = A.SHIFTNUM
+           AND AB.ROUTEID = A.ROUTEID
+           AND AB.ENABLE = 1)
+ WHERE A.ENABLE = 1
+   AND A.ROUTEID IN (SELECT R.ROUTEID
+                       FROM MCROUTEINFOGS R, MCRORGROUTEGS RO, MCORGINFOGS O
+                      WHERE R.ROUTEID = RO.ROUTEID(+)
+                        AND RO.ORGID = O.ORGID(+)
+                        AND O.ORGNAME IN ('903车队'));
+
+-----备份asgn_dispatch_model
+DROP TABLE ASGN_DISPATCH_MODEL_BAK;
+CREATE TABLE ASGN_DISPATCH_MODEL_BAK AS
+  SELECT * FROM ASGN_DISPATCH_MODEL;
+/*-----修改asgn_dispatch_model
+UPDATE ASGN_DISPATCH_MODEL A
+   SET A.TARGETBIGGROUPNUM =
+       (SELECT AB.SHIFTNUM
+          FROM ASGN_DISPATCH_MODEL_BAK AB
+         WHERE AB.TARGETBIGGROUPNUM = A.SHIFTNUM
+           AND AB.ROUTEID = A.ROUTEI
+           AND AB.ENABLE = 1)
+ WHERE A.ENABLE = 1
+   AND A.ROUTEID IN (SELECT R.ROUTEID
+                       FROM MCROUTEINFOGS R, MCRORGROUTEGS RO, MCORGINFOGS O
+                      WHERE R.ROUTEID = RO.ROUTEID(+)
+                        AND RO.ORGID = O.ORGID(+)
+                        AND O.ORGNAME = '306车队');*/
+------修改asgn_dispatch_model 方法2
+UPDATE ASGN_DISPATCH_MODEL A
+   SET A.TARGETBIGGROUPNUM =
+        (SELECT ads.targetshiftnum FROM ASGN_DISPATCH_SHIFTGROUP ADS
+          WHERE ADS.SHIFTNUM = A.SHIFTNUM
+            AND ADS.ROUTEID = A.ROUTEID
+            AND ADS.ENABLE = 1) WHERE  a.enable=1 AND a.routeid IN (SELECT R.ROUTEID
+                       FROM MCROUTEINFOGS R, MCRORGROUTEGS RO, MCORGINFOGS O
+                      WHERE R.ROUTEID = RO.ROUTEID(+)
+                        AND RO.ORGID = O.ORGID(+)
+                        AND O.ORGNAME IN ('903车队'))
+       ------恢复
+        UPDATE ASGN_DISPATCH_SHIFTGROUP A
+   SET A.TARGETSHIFTNUM =
+       (SELECT AB.TARGETSHIFTNUM
+          FROM ASGN_DISPATCH_SHIFTGROUP_BAK AB
+         WHERE AB.SHIFTNUM = A.SHIFTNUM
+           AND AB.ROUTEID = '320030'
+           AND AB.ENABLE = 1)
+ WHERE A.ENABLE = 1
+   AND A.ROUTEID = '320030'
+
+------检查
+  SELECT *
+          FROM MCROUTEINFOGS
+         WHERE ROUTEID = '320030'
+          SELECT *
+                  FROM ASGN_DISPATCH_MODEL
+                 WHERE ROUTEID = '320030'
+                   AND ENABLE = 1  SELECT *
+                          FROM ASGN_DISPATCH_SHIFTGROUP A
+                         WHERE A.ENABLE = 1
+                           AND A.ROUTEID = '320030';
+
+
+
+UPDATE HZ_TEMP T SET T.C12 = 1;

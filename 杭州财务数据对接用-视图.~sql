@@ -1,0 +1,58 @@
+/*
+视图名称：hz_fdisdisplan_view
+视图说明：杭州财务数据对接用视图
+创建人：Robert.Wei
+创建时间：2016-11-10
+*/
+
+CREATE OR REPLACE VIEW hz_fdisdisplan_view AS 
+SELECT o.orgcode,
+       F.RUNDATE,
+       E.CARDID,
+       F.DRIVERNAME,
+       CASE WHEN f.rectype=2 AND f.bussid=14 THEN 999
+         ELSE f.routeid
+           END routeid,
+           f.busselfid,
+       CASE
+         WHEN F.GROUPNUM = 1 AND F.SHIFTTYPE = 2 THEN
+          '1'
+         WHEN F.GROUPNUM = 2 AND F.SHIFTTYPE = 2 THEN
+          '2'
+         ELSE
+          F.SHIFTDETAILTYPE
+       END SHIFTDETAILTYPE,
+     sst.stationno sst,
+     est.stationno est,
+       SSt.STATIONNAME sstn,
+       ESt.STATIONNAME estn,
+       F.LEAVETIME,
+       F.ARRIVETIME,
+       seg.rundirection,
+       f.shiftnum,
+       seg.sngmile,    
+      CASE
+             WHEN f.RECTYPE = 1 OR f.recstate=24 THEN
+              f.MILENUM
+             ELSE
+              0
+           END YYMILE,
+       CASE
+             WHEN f.RECTYPE != 1 AND f.BUSID != 14 THEN
+              f.MILENUM
+             ELSE
+              0
+           END FYYMILE
+  FROM FDISDISPLANLD    F,
+       MCEMPLOYEEINFOGS E,
+       MCSTATIONINFOGS  SSt,
+       MCSTATIONINFOGS  ESt,
+       mcsegmentinfogs seg,
+       mcorginfogs o
+ WHERE F.ISACTIVE = 1
+   AND F.ISCONFIRM = 1
+   AND F.DRIVERID = E.EMPID(+)
+   AND F.Startstationid = SSt.STATIONID(+)
+   AND F.Endstationid = ESt.STATIONID(+)
+   AND f.segmentid=seg.segmentid(+)
+   AND f.orgid=o.orgid(+);

@@ -1,0 +1,38 @@
+
+update schplanseqgd s SET s.seqcount1=(select a.defaultseqnum from mcsegmentinfogs a where a.segmentid=s.segmentid) ;
+update  schplanshiftgd schs set schs.seqnum1=( select sum(seqcount1) from schplanseqgd seq where seq.planshiftid=schs.plansid and seq.groupnum=1 );
+update  schplanshiftgd schs set schs.seqnum2=( select sum(seqcount1) from schplanseqgd seq where seq.planshiftid=schs.plansid and seq.groupnum=2 );
+
+update asgnarrangeseqgd a1 set a1.seqcount1=(select a.defaultseqnum from mcsegmentinfogs a where a.segmentid=a1.segmentid) 
+where a1.execdate>date'2016-5-24';
+update asgnarrangeseqgd2 a1 set a1.seqcount1=(select a.defaultseqnum from mcsegmentinfogs a where a.segmentid=a1.segmentid) 
+where a1.execdate>date'2016-5-24';
+
+
+
+update  asgnarrangewshiftld asgns 
+set asgns.seqnum=(select schs.seqnum1  from schplanshiftgd schs  where schs.plansid=asgns.planshiftid   )
+where asgns.execdate>date'2016-5-24' and groupnum=1;
+update  asgnarrangewshiftld asgns 
+set asgns.seqnum=(select schs.seqnum2  from schplanshiftgd schs  where schs.plansid=asgns.planshiftid )
+where asgns.execdate>date'2016-5-24' and groupnum=2;
+update  asgnarrangewshiftld asgns 
+set asgns.planseqnum=seqnum
+where asgns.execdate>date'2016-5-24';
+update  asgnarrangewshiftld asgns 
+set asgns.planseqnum=NVL(planseqnum,0),asgns.seqnum=NVL(seqnum,0)
+where asgns.execdate>date'2016-5-24';
+
+update  fdisarrangesequenceld A 
+set A.seqnum=(select A1.SEQNUM from asgnarrangewshiftld A1  where A1.ARRANGEWSID=A.ARRANGEWSHIFTID ),
+ A.PLANseqnum=(select A1.SEQNUM from asgnarrangewshiftld A1  where A1.ARRANGEWSID=A.ARRANGEWSHIFTID )
+
+where A.execdate>date'2016-5-24'
+
+ and groupnum=1;
+update  fdisarrangesequenceld asgns 
+set asgns.seqnum=(select schs.seqnum2  from schplanshiftgd schs  where schs.plansid=asgns.planshiftid )
+where asgns.execdate>date'2016-5-24' and groupnum=2;
+update  fdisarrangesequenceld asgns 
+set asgns.planseqnum=seqnum
+where asgns.execdate>date'2016-5-24';

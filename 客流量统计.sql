@@ -1,0 +1,67 @@
+---project name :客流量统计
+--create by     :Rober.Wei
+--create time   :2017-1-14
+--describe      :客流汇总统计，下客站做平衡处理
+--数据准备
+SELECT *
+  FROM MCROUTEINFOGS R
+ WHERE R.ROUTENAME LIKE '%-滨江'
+    OR R.ROUTENAME LIKE '%杭州城站'
+    OR R.ROUTENAME LIKE '112%'
+    OR R.ROUTENAME LIKE 'Y1%'
+    OR R.ROUTENAME LIKE '113%'
+    OR R.ROUTENAME LIKE '119%';
+SELECT * FROM TYPEENTRY T WHERE T.TYPENAME LIKE '%STATIONTYPE%';
+SELECT *
+  FROM BSVCBUSRUNDATALD5 B
+ WHERE B.ACTDATETIME > DATE '2016-12-9'
+   AND B.DATATYPE = 12
+   AND B.ONPNUM IS NOT NULL;
+SELECT * FROM MCRSEGMENTSTATIONGS SEG WHERE SEG.Routeid = '212';
+SELECT * FROM MCRROUTESTATIONGS;
+--数据汇总
+SELECT T.ROUTEID,
+       T.SUBROUTEID,
+       T.ROUTENAME,
+       S.STATIONNAME,
+       T.ONNUM,
+       T.OFFNUM,
+       T.DUALSERIALID,
+       seg.dualserialid,
+       SEG.STATIONTYPEID,
+       CASE
+         WHEN SEG.STATIONTYPEID = 7 THEN
+          0
+         ELSE
+          T.LNUM
+       END LNUM
+  FROM (SELECT B.ROUTEID,
+               B.SUBROUTEID,
+               R.ROUTENAME,
+               RS.STATIONID,
+               RS.DUALSERIALID,
+               B.STATIONSEQNUM,
+               SUM(B.ONPNUM) ONNUM,
+               SUM(B.OFFPNUM) OFFNUM,
+               SUM(B.LEFTPNUM) LNUM
+          FROM BSVCBUSRUNDATALD5 B, MCRROUTESTATIONGS RS, MCROUTEINFOGS R
+         WHERE B.ACTDATETIME >= DATE '&dates'
+           AND B.ACTDATETIME < DATE
+         '&dates' + 1
+           AND B.ROUTEID IN ('516', '212', '802', '517', '3119', '214')
+           AND B.ROUTEID = RS.ROUTEID(+)
+           AND B.STATIONSEQNUM = RS.DUALSERIALID(+)
+           AND B.ROUTEID = R.ROUTEID(+)
+           AND B.DATATYPE = 12
+         GROUP BY B.ROUTEID,
+                  B.SUBROUTEID,
+                  RS.STATIONID,
+                  R.ROUTENAME,
+                  B.STATIONSEQNUM,
+                  RS.DUALSERIALID
+         ORDER BY B.ROUTEID, B.STATIONSEQNUM) T,
+       MCRSEGMENTSTATIONGS SEG,
+       MCSTATIONINFOGS S
+ WHERE T.SUBROUTEID = SEG.SUBROUTEID
+   AND T.DUALSERIALID = SEG.DUALSERIALID
+   AND T.STATIONID = S.STATIONID(+);
