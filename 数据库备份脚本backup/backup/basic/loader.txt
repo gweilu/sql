@@ -1,0 +1,1 @@
+statistics=none direct=n COMPRESS=n GRANTS=y INDEXES=y ROWS=y recordlength=65535 buffer=104857600 
