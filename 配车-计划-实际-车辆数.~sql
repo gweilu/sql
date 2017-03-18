@@ -1,0 +1,147 @@
+/*
+project:线路配车数量、计划出车数量及实际出车数量统计
+memo:通过存储过程将配车数计划数和实际出车数进行整合，每天晚上执行并输出结果
+create time：2017-3-5
+create by：Robert.Wei
+*/
+/*
+准备工作：
+新建一张表用于存储生成的结果,表的名字根据自己的项目来定义。
+
+CREATE TABLE hz_bus_count (
+cid NUMBER(20),
+rundate DATE,
+orgid VARCHAR2(20),
+routeid VARCHAR2(20),
+stbusnum NUMBER(6),
+plbusnum NUMBER(6),
+acbusnum NUMBER(6)
+)
+-- Add/modify columns 
+alter table HZ_BUS_COUNT modify cid not null;
+-- Create/Recreate indexes 
+create index buscount_idx on HZ_BUS_COUNT (rundate, routeid)
+  tablespace TBS_APTSHZ5_INDX
+  storage
+  (
+    initial 64K
+    minextents 1
+    maxextents unlimited
+  );
+*/
+--线路配车数，需要在第二日凌晨12点就执行写入
+
+SELECT * FROM HZ_BUS_COUNT;
+DELETE FROM HZ_BUS_COUNT H WHERE H.RUNDATE = '';
+INSERT INTO HZ_BUS_COUNT H
+  (H.CID, H.RUNDATE, H.ROUTEID, H.STBUSNUM)
+  SELECT HZ_SEQ.NEXTVAL, STB.RUNDATE, STB.ROUTEID, STB.STBNUM
+    FROM (SELECT TRUNC(SYSDATE) RUNDATE, A.ROUTEID, COUNT(1) STBNUM
+            FROM ASGNRBUSROUTELD A
+           GROUP BY A.ROUTEID) STB;
+SELECT * FROM HZ_BUS_COUNT;
+--计划配车数统计
+SELECT BC.NROUTEID, SUM(BC.COUNTS) PCOUNTS
+  FROM (SELECT PB.BUSID,
+               PB.ROUTEID,
+               FIRST_VALUE(PB.ROUTEID) OVER(PARTITION BY PB.BUSID ORDER BY PB.MILES DESC) NROUTEID,
+               CASE
+                 WHEN PB.ROUTEID = FIRST_VALUE(PB.ROUTEID)
+                  OVER(PARTITION BY PB.BUSID ORDER BY PB.MILES DESC) THEN
+                  1
+                 ELSE
+                  0
+               END COUNTS
+          FROM (SELECT ASEQ.BUSID, A.ROUTEID,aseq.shiftdetailtype, SUM(ASEQ.MILEAGE) MILES
+                  FROM ASGNARRANGESEQGD ASEQ, ASGNARRANGEGD A
+                 WHERE A.EXECDATE = DATE '2017-3-9'
+                   AND A.STATUS = 'd'
+                   AND ASEQ.ARRANGEID = A.ARRANGEID(+)
+                   AND ASEQ.BUSID IS NOT NULL
+                 GROUP BY ASEQ.BUSID, A.ROUTEID,aseq.shiftdetailtype) PB) BC
+ GROUP BY BC.NROUTEID;
+
+--实际配车数
+SELECT TBC.NROUTEID, SUM(TBC.COUNTS) RCOUNTS
+  FROM (SELECT RB.BUSID,
+               RB.ROUTEID,
+               FIRST_VALUE(RB.ROUTEID) OVER(PARTITION BY RB.BUSID ORDER BY RB.MILES DESC) NROUTEID,
+               CASE
+                 WHEN RB.ROUTEID = FIRST_VALUE(RB.ROUTEID)
+                  OVER(PARTITION BY RB.BUSID ORDER BY RB.MILES DESC) THEN
+                  1
+                 ELSE
+                  0
+               END COUNTS
+          FROM (SELECT F.BUSID, F.ROUTEID, SUM(F.MILENUM) MILES
+                  FROM FDISDISPLANLD F
+                 WHERE F.RUNDATE = DATE '2017-3-9'
+                   AND F.ISACTIVE = 1
+                   AND F.RECTYPE = 1
+                   AND F.ISCONFIRM = 1
+                   AND F.BUSID IS NOT NULL
+                 GROUP BY F.BUSID, F.ROUTEID) RB) TBC
+ GROUP BY TBC.NROUTEID;
+
+--配车、计划、实际表连接
+SELECT SBC.RUNDATE,
+       SBC.ROUTEID,
+       SBC.STBUSNUM,
+       PBC.PCOUNTS,
+       RBC.RCOUNTS,
+       SUBSTR(TO_NUMBER(RBC.RCOUNTS) / TO_NUMBER(SBC.STBUSNUM)*100,0,5) ||'%'
+  FROM HZ_BUS_COUNT SBC,
+       (SELECT BC.NROUTEID, SUM(BC.COUNTS) PCOUNTS
+          FROM (SELECT PB.BUSID,
+                       PB.ROUTEID,
+                       FIRST_VALUE(PB.ROUTEID) OVER(PARTITION BY PB.BUSID ORDER BY PB.MILES DESC) NROUTEID,
+                       CASE
+                         WHEN PB.ROUTEID = FIRST_VALUE(PB.ROUTEID)
+                          OVER(PARTITION BY PB.BUSID ORDER BY PB.MILES DESC) THEN
+                          1
+                         ELSE
+                          0
+                       END COUNTS
+                  FROM (SELECT ASEQ.BUSID, A.ROUTEID, SUM(ASEQ.MILEAGE) MILES
+                          FROM ASGNARRANGESEQGD ASEQ, ASGNARRANGEGD A
+                         WHERE A.EXECDATE = DATE
+                         '2017-3-9'
+                           AND A.STATUS = 'd'
+                           AND ASEQ.ARRANGEID = A.ARRANGEID(+)
+                           AND ASEQ.BUSID IS NOT NULL
+                         GROUP BY ASEQ.BUSID, A.ROUTEID) PB) BC
+         GROUP BY BC.NROUTEID) PBC,
+       (SELECT TBC.NROUTEID, SUM(TBC.COUNTS) RCOUNTS
+          FROM (SELECT RB.BUSID,
+                       RB.ROUTEID,
+                       FIRST_VALUE(RB.ROUTEID) OVER(PARTITION BY RB.BUSID ORDER BY RB.MILES DESC) NROUTEID,
+                       CASE
+                         WHEN RB.ROUTEID = FIRST_VALUE(RB.ROUTEID)
+                          OVER(PARTITION BY RB.BUSID ORDER BY RB.MILES DESC) THEN
+                          1
+                         ELSE
+                          0
+                       END COUNTS
+                  FROM (SELECT F.BUSID, F.ROUTEID, SUM(F.MILENUM) MILES
+                          FROM FDISDISPLANLD F
+                         WHERE F.RUNDATE = DATE '2017-3-9'
+                           AND F.ISACTIVE = 1
+                           AND F.RECTYPE = 1
+                           AND F.ISCONFIRM = 1
+                           AND F.BUSID IS NOT NULL
+                         GROUP BY F.BUSID, F.ROUTEID) RB) TBC
+         GROUP BY TBC.NROUTEID) RBC
+ WHERE SBC.ROUTEID = PBC.NROUTEID
+   AND SBC.ROUTEID = RBC.NROUTEID
+   AND SBC.RUNDATE = DATE '2017-3-9';
+
+---找出当日车辆排班有重复的车辆
+SELECT DISTINCT T.BUSID
+  FROM (SELECT DISTINCT ASEQ.BUSID BUSID, A.ROUTEID
+          FROM ASGNARRANGESEQGD ASEQ, ASGNARRANGEGD A
+         WHERE A.EXECDATE = DATE '2017-3-7'
+           AND A.STATUS = 'd'
+           AND ASEQ.ARRANGEID = A.ARRANGEID(+)
+           AND ASEQ.BUSID IS NOT NULL) T
+HAVING COUNT(T.BUSID) > 1
+ GROUP BY T.BUSID;

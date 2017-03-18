@@ -1,20 +1,22 @@
 ------工资计算所用表整理
-SELECT * FROM hr_salarysetinfogd; --薪资账套表
-select * from HR_SALARY_CONFIGS C;  --工资各类系数表
-select * from HRMONTHLYRECGD M ; --人资数据月结表（岗位工资，工龄补贴等）
-select * from HR_STAFFSALARYSETSETUPGD; --员工薪资帐套设置表(账套绑定)
-select * from pzh_hr_emp_data;  --工资计算中间表
-select * from pzh_hr_emp_rundata;  --驾驶员运营数据汇总表
-select * from HR_SALARYIMPORTDATAGD;  --通用项数据倒入表
-select * from HR_HOLIDAYGS;  --节假日表
-select * from HR_SALARYLEVELGD; --薪资级别项目表
-select * from HR_EMPLEVELGD e; ---人员薪资级别对应表
-select * from HR_SALARYSETINFOGSENTRYGD;  ----薪资项目表
-select * from HR_SALARYTOTALGD;--薪资总表
-select * from HR_RSALARYSETEMPGD;--薪资账套权限设置表
-select * from HR_SALARYITEMROLEGD;--薪资项目与角色
-select * from HR_SALARYSETDETAILTEMPGD;---薪资账套明细临时表
-select * from HR_EMPINSURANCEGD; --员工社保及公积金基数管理表
-select * from HR_SALARYSETADDINFOGD;  --生成账套薪资日期记录
-select * from HR_SALARYTOTALMAINGD;--员工薪资记录主表(薪资一般项导入)
-select * from hr_salarytotalmaingd;  --员工薪资记录主表
+SELECT * FROM HR_SALARYSETINFOGD; --薪资账套表
+SELECT * FROM HR_SALARY_CONFIGS C; --工资各类系数表
+SELECT * FROM HRMONTHLYRECGD M; --人资数据月结表（岗位工资，工龄补贴等）
+SELECT * FROM HR_STAFFSALARYSETSETUPGD; --员工薪资帐套设置表(账套绑定)
+SELECT * FROM PZH_HR_EMP_DATA; --工资计算中间表
+SELECT * FROM PZH_HR_EMP_RUNDATA; --驾驶员运营数据汇总表
+SELECT * FROM HR_SALARYIMPORTDATAGD; --通用项数据倒入表
+SELECT * FROM HR_HOLIDAYGS; --节假日表
+SELECT * FROM HR_SALARYLEVELGD; --薪资级别项目表
+SELECT * FROM HR_EMPLEVELGD E; ---人员薪资级别对应表
+SELECT * FROM HR_SALARYSETINFOGSENTRYGD; ----薪资项目表
+SELECT * FROM HR_SALARYTOTALGD; --薪资总表
+SELECT * FROM HR_RSALARYSETEMPGD; --薪资账套权限设置表
+SELECT * FROM HR_SALARYITEMROLEGD; --薪资项目与角色
+SELECT * FROM HR_SALARYSETDETAILTEMPGD; ---薪资账套明细临时表
+SELECT * FROM HR_EMPINSURANCEGD; --员工社保及公积金基数管理表
+SELECT * FROM HR_SALARYSETADDINFOGD; --生成账套薪资日期记录
+SELECT * FROM HR_SALARYTOTALMAINGD; --员工薪资记录主表(薪资一般项导入)
+SELECT * FROM HR_SALARYTOTALMAINGD; --员工薪资记录主表
+SELECT * FROM hr_salaryrmainsetdetailgd;--薪资总表项目和工资项设置对应表
+SELECT * FROM hr_salaryrmainsetdetailhisgd;--薪资总表项目和工资项设置对应表历史表

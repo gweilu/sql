@@ -1,0 +1,63 @@
+--杭州按组织工时统计 统计营运的工时不包含停站时间
+SELECT *
+  FROM FDISDISPLANLD F
+ WHERE F.ROUTEID = '320030'
+   AND F.RUNDATE = DATE '2017-3-11'
+   AND F.RECTYPE = 1
+   AND F.ISACTIVE = 1
+   AND F.ISCONFIRM = 1
+   AND F.DRIVERID = '20150921223010000043';
+
+-----
+SELECT SG.ROUTEID,
+       SG.DRIVERID,
+       SG.DRIVERNAME,
+       ROUND(SUM(双班), 2),
+       ROUND(SUM(两头班), 2),
+       ROUND(SUM(全天班), 2),
+       ROUND(SUM(交通和夜车), 2),
+       ROUND(SUM(统班), 2),
+       ROUND(SUM(特1), 2),
+       ROUND(SUM(特2), 2),
+       ROUND(SUM(特3), 2)  
+  FROM (SELECT *
+        --  ROUND( SUM( sg.wt ), 1 )
+          FROM (SELECT F.ROUTEID,
+                       F.DRIVERID,
+                       F.DRIVERNAME,
+                       F.GROUPNUM,
+                       CASE
+                         WHEN F.SHIFTDETAILTYPE IS NULL THEN
+                          'L'
+                         ELSE
+                          F.SHIFTDETAILTYPE
+                       END SHIFTDETAILTYPE,
+                       F.RUNDATE,
+                        (MAX(F.REALARRIVETTIME) - MIN(F.REALLEAVETIME)) * 24 WT
+                     /*  (F.REALARRIVETTIME-F.REALLEAVETIME) * 24 WT*/
+                  FROM FDISDISPLANLD F
+                 WHERE F.ROUTEID = '320030'
+                   AND F.RUNDATE BETWEEN DATE '2017-3-8' AND DATE
+                 '2017-3-9'
+                   AND F.ISACTIVE = 1
+                   AND F.ISCONFIRM = 1
+                   AND F.RECTYPE = 1
+                 GROUP BY F.ROUTEID,
+                          F.DRIVERID,
+                          F.DRIVERNAME,
+                          F.GROUPNUM,
+                          F.SHIFTDETAILTYPE,
+                          F.RUNDATE) PIVOT(SUM(WT) FOR SHIFTDETAILTYPE IN('L' 双班,
+                                                                          '3' 两头班,
+                                                                          '4' 全天班,
+                                                                          '5'
+                                                                          交通和夜车,
+                                                                          '0' 统班,
+                                                                          '7' 特1,
+                                                                          '8' 特2,
+                                                                          '9' 特3))) SG
+ GROUP BY SG.ROUTEID, SG.DRIVERID, SG.DRIVERNAME;
+
+SELECT TO_CHAR(WM_CONCAT('''' || T.ITEMVALUE || '''' || ' ' || T.ITEMKEY))
+  FROM TYPEENTRY T
+ WHERE T.TYPENAME = 'SHIFTDETAILTYPE';

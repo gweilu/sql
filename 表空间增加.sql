@@ -44,5 +44,4 @@ select a.tablespace_name,
 
 select * from dba_data_files d where d.tablespace_name='TBS_APTSHZ5_BSVC';
 
-
-alter tablespace TBS_APTSHZ5_BSVC add datafile '/data/apts/oradata/aptshz5/tbs_aptshz5_bsvc27.dbf' size 10G autoextend on;
+alter tablespace TBS_APTSHZ5_FDIS add datafile '/data1/tbs_aptshz5_fdis3.dbf' size 30G autoextend on;
